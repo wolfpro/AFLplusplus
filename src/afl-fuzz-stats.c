@@ -137,6 +137,32 @@ void write_stats_file(afl_state_t *afl, double bitmap_cvg, double stability,
   /* ignore errors */
 
   fclose(f);
+  
+  if (stability < 0)  {
+
+    int i, j = 0;
+    printf("\n\nAll Edges:");
+    for (i = 0; i < MAP_SIZE; i++)
+      if (afl->virgin_bits[i] != 255) {
+
+        printf(" %d\n", i);
+        j++;
+        
+      }
+
+    printf(" (%d)\nVariable Edges:", j);
+    j = 0;
+    for (i = 0; i < MAP_SIZE; i++)
+      if (afl->var_bytes[i]) {
+
+        printf(" %d\n", i);
+        j++;
+
+      }
+    printf(" (%d)\n", j);
+    FATAL("stability is negative");
+
+  }
 
 }
 
