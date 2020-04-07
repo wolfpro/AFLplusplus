@@ -145,7 +145,7 @@ void write_stats_file(afl_state_t *afl, double bitmap_cvg, double stability,
     for (i = 0; i < MAP_SIZE; i++)
       if (afl->virgin_bits[i] != 255) {
 
-        printf(" %d\n", i);
+        printf(" %d", i);
         j++;
         
       }
@@ -155,7 +155,7 @@ void write_stats_file(afl_state_t *afl, double bitmap_cvg, double stability,
     for (i = 0; i < MAP_SIZE; i++)
       if (afl->var_bytes[i]) {
 
-        printf(" %d\n", i);
+        printf(" %d", i);
         j++;
 
       }
