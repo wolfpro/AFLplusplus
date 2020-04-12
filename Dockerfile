@@ -25,13 +25,35 @@ RUN apt-get update && apt-get -y install \
     wget \
     ca-certificates \
     libpixman-1-dev \
-    && rm -rf /var/lib/apt/lists/*
+    python3-dev \
+    cmake \
+    make \
+    git \
+    ca-certificates \
+    tar \
+    gzip \
+    vim \
+    curl \
+    apt-utils \
+    libelf-dev \
+    libelf1 \
+    libiberty-dev \
+    libboost-all-dev \
+    libtbb2 \
+    libtbb-dev && rm -rf /var/lib/apt/lists/*
 
 ARG CC=gcc-9
 ARG CXX=g++-9
 ARG LLVM_CONFIG=llvm-config-9
 
 RUN git clone https://github.com/AFLplusplus/AFLplusplus
+RUN git clone https://github.com/dyninst/dyninst
+RUN git clone https://github.com/vanhauser-thc/afl-dyninst
+RUN git clone https://github.com/DynamoRIO/dynamorio
 
 RUN cd AFLplusplus && make clean && make distrib && \
-    make install && cd .. && rm -rf AFLplusplus
+    make install && cd .. 
+   
+RUN cd dyninst && mkdir build && cmake /dyninst -DCMAKE_INSTALL_PREFIX=/dyninst/build && make install && cd ..
+
+RUN cd dynamorio && cmake . && make && make install &&  cd ..
