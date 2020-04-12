@@ -20,24 +20,19 @@ HELPER_PATH = $(PREFIX)/lib/afl
 CFLAGS = -fPIC -Wall -Wextra
 LDFLAGS = -shared
 
-UNAME_SAYS_LINUX=$(shell uname | grep -E '^Linux|^GNU' >/dev/null; echo $$?)
-UNAME_SAYS_LINUX:sh=uname | grep -E '^Linux|^GNU' >/dev/null; echo $$?
-
-_LDFLAGS_ADD=$(UNAME_SAYS_LINUX:1=)
-LDFLAGS_ADD=$(_LDFLAGS_ADD:0=-ldl)
-LDFLAGS  += $(LDFLAGS_ADD)
+ifneq "$(filter Linux GNU%,$(shell uname))" ""
+  LDFLAGS  += -ldl
+endif
 
 # on gcc for arm there is no -m32, but -mbe32
 M32FLAG = -m32
 M64FLAG = -m64
+ifeq "$(findstring clang, $(shell $(CC) --version 2>/dev/null))" ""
+ ifneq (,$(findstring arm, "$(shell $(CC) -v 2>&1 >/dev/null)"))
+  M32FLAG = -mbe32
+ endif
+endif
 
-CC_IS_GCC=$(shell $(CC) --version 2>/dev/null | grep gcc; echo $$?)
-CC_IS_ARMCOMPILER=$(shell $(CC) -v 2>&1 >/dev/null | grep arm; echo $$?)
-
-_M32FLAG=$(CC_IS_GCC)$(CC_IS_ARMCOMPILER)
-__M32FLAG=$(_M32FLAG:00=-mbe32)
-___M32FLAG=$(__M32FLAG:$(CC_IS_GCC)$(CC_IS_ARMCOMPILER)=-m32)
-M32FLAG=$(___M32FLAG)
 
 all: argvfuzz32.so argvfuzz64.so
 

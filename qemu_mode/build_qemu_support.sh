@@ -62,15 +62,15 @@ if [ ! -f "../afl-showmap" ]; then
 
 fi
 
-PREREQ_NOTFOUND=
-for i in libtool wget python automake autoconf sha384sum bison flex iconv patch pkg-config; do
 
-  T=`command -v "$i" 2>/dev/null`
+for i in libtool wget python automake autoconf sha384sum bison iconv; do
+
+  T=`which "$i" 2>/dev/null`
 
   if [ "$T" = "" ]; then
 
     echo "[-] Error: '$i' not found, please install first."
-    PREREQ_NOTFOUND=1
+    exit 1
 
   fi
 
@@ -79,19 +79,15 @@ done
 if [ ! -d "/usr/include/glib-2.0/" -a ! -d "/usr/local/include/glib-2.0/" ]; then
 
   echo "[-] Error: devel version of 'glib2' not found, please install first."
-  PREREQ_NOTFOUND=1
+  exit 1
 
 fi
 
 if echo "$CC" | grep -qF /afl-; then
 
   echo "[-] Error: do not use afl-gcc or afl-clang to compile this tool."
-  PREREQ_NOTFOUND=1
-
-fi
-
-if [ "$PREREQ_NOTFOUND" = "1" ]; then
   exit 1
+
 fi
 
 echo "[+] All checks passed!"
@@ -143,16 +139,8 @@ echo "[*] Configuring QEMU for $CPU_TARGET..."
 
 ORIG_CPU_TARGET="$CPU_TARGET"
 
-if [ "$ORIG_CPU_TARGET" = "" ]; then
-  CPU_TARGET="`uname -m`"
-  test "$CPU_TARGET" = "i686" && CPU_TARGET="i386"
-  test "$CPU_TARGET" = "arm64v8" && CPU_TARGET="aarch64"
-  case "$CPU_TARGET" in 
-    *arm*)
-      CPU_TARGET="arm"
-      ;;
-  esac
-fi
+test "$CPU_TARGET" = "" && CPU_TARGET="`uname -m`"
+test "$CPU_TARGET" = "i686" && CPU_TARGET="i386"
 
 cd qemu-$VERSION || exit 1
 
@@ -174,8 +162,6 @@ patch -p1 <../patches/configure.diff || exit 1
 patch -p1 <../patches/tcg-runtime.diff || exit 1
 patch -p1 <../patches/tcg-runtime-head.diff || exit 1
 patch -p1 <../patches/translator.diff || exit 1
-patch -p1 <../patches/__init__.py.diff || exit 1
-patch -p1 <../patches/make_strncpy_safe.diff || exit 1
 
 echo "[+] Patching done."
 

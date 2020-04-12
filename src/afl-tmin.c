@@ -61,7 +61,8 @@
 static u8 *mask_bitmap;                /* Mask for trace bits (-B)          */
 
 u8 *in_file,                           /* Minimizer input test case         */
-    *output_file;                      /* Minimizer output file             */
+    *output_file,                      /* Minimizer output file             */
+    *doc_path;                         /* Path to docs                      */
 
 static u8 *in_data;                    /* Input data for trimming           */
 
@@ -76,7 +77,8 @@ u8 crash_mode,                         /* Crash-centric mode?               */
     hang_mode,                         /* Minimize as long as it hangs      */
     exit_crash,                        /* Treat non-zero exit as crash?     */
     edges_only,                        /* Ignore hit counts?                */
-    exact_mode;                        /* Require path match for crashes?   */
+    exact_mode,                        /* Require path match for crashes?   */
+    be_quiet;
 
 static volatile u8 stop_soon;          /* Ctrl-C pressed?                   */
 
@@ -245,14 +247,160 @@ static void write_to_testcase(afl_forkserver_t *fsrv, void *mem, u32 len) {
 
 }
 
+/* Handle timeout signal. */
+/*
+static void handle_timeout(int sig) {
+
+  if (child_pid > 0) {
+
+  child_timed_out = 1;
+    kill(child_pid, SIGKILL);
+
+  } else if (child_pid == -1 && forksrv_pid > 0) {
+
+    child_timed_out = 1;
+    kill(forksrv_pid, SIGKILL);
+
+  }
+
+}
+
+*/
+
+/* start the app and it's forkserver */
+/*
+static void init_forkserver(char **argv) {
+
+  static struct itimerval it;
+  int st_pipe[2], ctl_pipe[2];
+  int status = 0;
+  s32 rlen;
+
+  ACTF("Spinning up the fork server...");
+  if (pipe(st_pipe) || pipe(ctl_pipe)) PFATAL("pipe() failed");
+
+  forksrv_pid = fork();
+
+  if (forksrv_pid < 0) PFATAL("fork() failed");
+
+  if (!forksrv_pid) {
+
+    struct rlimit r;
+
+    if (dup2(use_stdin ? out_fd : dev_null_fd, 0) < 0 ||
+        dup2(dev_null_fd, 1) < 0 ||
+        dup2(dev_null_fd, 2) < 0) {
+
+      *(u32*)trace_bits = EXEC_FAIL_SIG;
+      PFATAL("dup2() failed");
+
+    }
+
+    close(dev_null_fd);
+    close(out_fd);
+
+    setsid();
+
+    if (mem_limit) {
+
+      r.rlim_max = r.rlim_cur = ((rlim_t)mem_limit) << 20;
+
+#ifdef RLIMIT_AS
+
+      setrlimit(RLIMIT_AS, &r); // Ignore errors
+
+#else
+
+      setrlimit(RLIMIT_DATA, &r); // Ignore errors
+
+#endif // ^RLIMIT_AS
+
+    }
+
+    r.rlim_max = r.rlim_cur = 0;
+    setrlimit(RLIMIT_CORE, &r); // Ignore errors
+
+    // Set up control and status pipes, close the unneeded original fds.
+
+    if (dup2(ctl_pipe[0], FORKSRV_FD) < 0) PFATAL("dup2() failed");
+    if (dup2(st_pipe[1], FORKSRV_FD + 1) < 0) PFATAL("dup2() failed");
+
+    close(ctl_pipe[0]);
+    close(ctl_pipe[1]);
+    close(st_pipe[0]);
+    close(st_pipe[1]);
+
+    execv(fsrv->target_path, argv);
+
+    *(u32*)trace_bits = EXEC_FAIL_SIG;
+    exit(0);
+
+  }
+
+  // Close the unneeded endpoints.
+
+  close(ctl_pipe[0]);
+  close(st_pipe[1]);
+
+  fsrv_ctl_fd = ctl_pipe[1];
+  fsrv_st_fd  = st_pipe[0];
+
+  // Configure timeout, wait for child, cancel timeout.
+
+  if (exec_tmout) {
+
+    child_timed_out = 0;
+    it.it_value.tv_sec = (exec_tmout * FORK_WAIT_MULT / 1000);
+    it.it_value.tv_usec = ((exec_tmout * FORK_WAIT_MULT) % 1000) * 1000;
+
+  }
+
+  setitimer(ITIMER_REAL, &it, NULL);
+
+  rlen = read(fsrv_st_fd, &status, 4);
+
+  it.it_value.tv_sec = 0;
+  it.it_value.tv_usec = 0;
+  setitimer(ITIMER_REAL, &it, NULL);
+
+  // If we have a four-byte "hello" message from the server, we're all set.
+  // Otherwise, try to figure out what went wrong.
+
+  if (rlen == 4) {
+
+    ACTF("All right - fork server is up.");
+    return;
+
+  }
+
+  if (waitpid(forksrv_pid, &status, 0) <= 0)
+    PFATAL("waitpid() failed");
+
+  u8 child_crashed;
+
+  if (WIFSIGNALED(status))
+    child_crashed = 1;
+
+  if (child_timed_out)
+    SAYF(cLRD "\n+++ Program timed off +++\n" cRST);
+  else if (stop_soon)
+    SAYF(cLRD "\n+++ Program aborted by user +++\n" cRST);
+  else if (child_crashed)
+    SAYF(cLRD "\n+++ Program killed by signal %u +++\n" cRST, WTERMSIG(status));
+
+}
+
+*/
+
 /* Execute target application. Returns 0 if the changes are a dud, or
    1 if they should be kept. */
 
 static u8 run_target(afl_forkserver_t *fsrv, char **argv, u8 *mem, u32 len,
                      u8 first_run) {
 
-  struct itimerval it;
-  int              status = 0;
+  static struct itimerval it;
+  static u32              prev_timed_out = 0;
+  int                     status = 0;
 
   u32 cksum;
 
@@ -268,7 +416,7 @@ static u8 run_target(afl_forkserver_t *fsrv, char **argv, u8 *mem, u32 len,
   /* we have the fork server up and running, so simply
      tell it to have at it, and then read back PID. */
 
-  if ((res = write(fsrv->fsrv_ctl_fd, &fsrv->prev_timed_out, 4)) != 4) {
+  if ((res = write(fsrv->fsrv_ctl_fd, &prev_timed_out, 4)) != 4) {
 
     if (stop_soon) return 0;
     RPFATAL(res, "Unable to request new process from fork server (OOM?)");
@@ -404,6 +552,17 @@ static u8 run_target(afl_forkserver_t *fsrv, char **argv, u8 *mem, u32 len,
 
 }
 
+/* Find first power of two greater or equal to val. */
+
+static u32 next_p2(u32 val) {
+
+  u32 ret = 1;
+  while (val > ret)
+    ret <<= 1;
+  return ret;
+
+}
+
 /* Actually minimize! */
 
 static void minimize(afl_forkserver_t *fsrv, char **argv) {
@@ -421,7 +580,7 @@ static void minimize(afl_forkserver_t *fsrv, char **argv) {
    * BLOCK NORMALIZATION *
    ***********************/
 
-  set_len = next_pow2(in_len / TMIN_SET_STEPS);
+  set_len = next_p2(in_len / TMIN_SET_STEPS);
   set_pos = 0;
 
   if (set_len < TMIN_SET_MIN_SIZE) set_len = TMIN_SET_MIN_SIZE;
@@ -471,7 +630,7 @@ next_pass:
    * BLOCK DELETION *
    ******************/
 
-  del_len = next_pow2(in_len / TRIM_START_STEPS);
+  del_len = next_p2(in_len / TRIM_START_STEPS);
   stage_o_len = in_len;
 
   ACTF(cBRI "Stage #1: " cRST "Removing blocks of data...");
@@ -802,6 +961,11 @@ static void setup_signal_handlers(void) {
   sigaction(SIGHUP, &sa, NULL);
   sigaction(SIGINT, &sa, NULL);
   sigaction(SIGTERM, &sa, NULL);
+
+  /* Exec timeout notifications. */
+
+  sa.sa_handler = handle_timeout;
+  sigaction(SIGALRM, &sa, NULL);
 
 }
 

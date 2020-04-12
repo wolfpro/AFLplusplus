@@ -55,8 +55,6 @@ void load_extras_file(afl_state_t *afl, u8 *fname, u32 *min_len, u32 *max_len,
   u8 *  lptr;
   u32   cur_line = 0;
 
-  u8 val_bufs[2][STRINGIFY_VAL_SIZE_MAX];
-
   f = fopen(fname, "r");
 
   if (!f) PFATAL("Unable to open '%s'", fname);
@@ -172,10 +170,8 @@ void load_extras_file(afl_state_t *afl, u8 *fname, u32 *min_len, u32 *max_len,
     afl->extras[afl->extras_cnt].len = klen;
 
     if (afl->extras[afl->extras_cnt].len > MAX_DICT_FILE)
-      FATAL(
-          "Keyword too big in line %u (%s, limit is %s)", cur_line,
-          stringify_mem_size(val_bufs[0], sizeof(val_bufs[0]), klen),
-          stringify_mem_size(val_bufs[1], sizeof(val_bufs[1]), MAX_DICT_FILE));
+      FATAL("Keyword too big in line %u (%s, limit is %s)", cur_line, DMS(klen),
+            DMS(MAX_DICT_FILE));
 
     if (*min_len > klen) *min_len = klen;
     if (*max_len < klen) *max_len = klen;
@@ -196,8 +192,6 @@ void load_extras(afl_state_t *afl, u8 *dir) {
   struct dirent *de;
   u32            min_len = MAX_DICT_FILE, max_len = 0, dict_level = 0;
   u8 *           x;
-
-  u8 val_bufs[2][STRINGIFY_VAL_SIZE_MAX];
 
   /* If the name ends with @, extract level and continue. */
 
@@ -244,10 +238,8 @@ void load_extras(afl_state_t *afl, u8 *dir) {
     }
 
     if (st.st_size > MAX_DICT_FILE)
-      FATAL(
-          "Extra '%s' is too big (%s, limit is %s)", fn,
-          stringify_mem_size(val_bufs[0], sizeof(val_bufs[0]), st.st_size),
-          stringify_mem_size(val_bufs[1], sizeof(val_bufs[1]), MAX_DICT_FILE));
+      FATAL("Extra '%s' is too big (%s, limit is %s)", fn, DMS(st.st_size),
+            DMS(MAX_DICT_FILE));
 
     if (min_len > st.st_size) min_len = st.st_size;
     if (max_len < st.st_size) max_len = st.st_size;
@@ -281,12 +273,11 @@ check_and_sort:
         compare_extras_len);
 
   OKF("Loaded %u extra tokens, size range %s to %s.", afl->extras_cnt,
-      stringify_mem_size(val_bufs[0], sizeof(val_bufs[0]), min_len),
-      stringify_mem_size(val_bufs[1], sizeof(val_bufs[1]), max_len));
+      DMS(min_len), DMS(max_len));
 
   if (max_len > 32)
     WARNF("Some tokens are relatively large (%s) - consider trimming.",
-          stringify_mem_size(val_bufs[0], sizeof(val_bufs[0]), max_len));
+          DMS(max_len));
 
   if (afl->extras_cnt > MAX_DET_EXTRAS)
     WARNF("More than %d tokens - will use them probabilistically.",
@@ -387,7 +378,7 @@ void maybe_add_auto(afl_state_t *afl, u8 *mem, u32 len) {
 
   } else {
 
-    i = MAX_AUTO_EXTRAS / 2 + rand_below(afl, (MAX_AUTO_EXTRAS + 1) / 2);
+    i = MAX_AUTO_EXTRAS / 2 + UR(afl, (MAX_AUTO_EXTRAS + 1) / 2);
 
     ck_free(afl->a_extras[i].data);
 
@@ -451,7 +442,7 @@ void load_auto(afl_state_t *afl) {
     u8 *fn = alloc_printf("%s/.state/auto_extras/auto_%06u", afl->in_dir, i);
     s32 fd, len;
 
-    fd = open(fn, O_RDONLY);
+    fd = open(fn, O_RDONLY, 0600);
 
     if (fd < 0) {
 

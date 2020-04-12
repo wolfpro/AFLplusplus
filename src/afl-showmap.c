@@ -59,10 +59,13 @@
 #include <sys/types.h>
 #include <sys/resource.h>
 
+u8 be_quiet;
+
 char *stdin_file;                      /* stdin file                        */
 
 u8 *in_dir,                            /* input folder                      */
-    *at_file = NULL;              /* Substitution string for @@             */
+    *doc_path,                         /* Path to docs                      */
+        *at_file = NULL;               /* Substitution string for @@        */
 
 static u8 *in_data;                    /* Input data                        */
 
@@ -154,8 +157,7 @@ static u32 write_results_to_file(afl_forkserver_t *fsrv, u8 *outfile) {
 
   if (!strncmp(outfile, "/dev/", 5)) {
 
-    fd = open(outfile, O_WRONLY);
-
+    fd = open(outfile, O_WRONLY, 0600);
     if (fd < 0) PFATAL("Unable to open '%s'", fsrv->out_file);
 
   } else if (!strcmp(outfile, "-")) {
@@ -222,6 +224,26 @@ static u32 write_results(afl_forkserver_t *fsrv) {
 
 }
 
+/* Write output file. */
+
+static s32 write_to_file(u8 *path, u8 *mem, u32 len) {
+
+  s32 ret;
+
+  unlink(path);                                            /* Ignore errors */
+
+  ret = open(path, O_RDWR | O_CREAT | O_EXCL, 0600);
+
+  if (ret < 0) PFATAL("Unable to create '%s'", path);
+
+  ck_write(ret, mem, len, path);
+
+  lseek(ret, 0, SEEK_SET);
+
+  return ret;
+
+}
+
 /* Write modified data to file for testing. If use_stdin is clear, the old file
    is unlinked and a new one is created. Otherwise, out_fd is rewound and
    truncated. */
@@ -241,8 +263,9 @@ static void write_to_testcase(afl_forkserver_t *fsrv, void *mem, u32 len) {
 static u8 run_target_forkserver(afl_forkserver_t *fsrv, char **argv, u8 *mem,
                                 u32 len) {
 
-  struct itimerval it;
-  int              status = 0;
+  static struct itimerval it;
+  static u32              prev_timed_out = 0;
+  int                     status = 0;
 
   memset(fsrv->trace_bits, 0, MAP_SIZE);
   MEM_BARRIER();
@@ -254,7 +277,7 @@ static u8 run_target_forkserver(afl_forkserver_t *fsrv, char **argv, u8 *mem,
   /* we have the fork server up and running, so simply
      tell it to have at it, and then read back PID. */
 
-  if ((res = write(fsrv->fsrv_ctl_fd, &fsrv->prev_timed_out, 4)) != 4) {
+  if ((res = write(fsrv->fsrv_ctl_fd, &prev_timed_out, 4)) != 4) {
 
     if (stop_soon) return 0;
     RPFATAL(res, "Unable to request new process from fork server (OOM?)");
@@ -555,6 +578,11 @@ static void setup_signal_handlers(void) {
   sigaction(SIGHUP, &sa, NULL);
   sigaction(SIGINT, &sa, NULL);
   sigaction(SIGTERM, &sa, NULL);
+
+  /* Exec timeout notifications. */
+
+  sa.sa_handler = handle_timeout;
+  sigaction(SIGALRM, &sa, NULL);
 
 }
 

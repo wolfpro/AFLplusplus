@@ -25,9 +25,6 @@
 #include "../config.h"
 #include "../types.h"
 
-#ifdef USEMMAP
-#include <stdio.h>
-#endif
 #include <stdlib.h>
 #include <signal.h>
 #include <unistd.h>

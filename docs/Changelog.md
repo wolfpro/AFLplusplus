@@ -9,48 +9,27 @@ Want to stay in the loop on major new features? Join our mailing list by
 sending a mail to <afl-users+subscribe@googlegroups.com>.
 
 
-### Version ++2.63c (release):
+### Version ++2.62d (develop):
 
-  ! the repository was moved from vanhauser-thc to AFLplusplus. It is now
-    an own organisation :)
-  ! development and acceptance of PRs now happen only in the dev branch
-    and only occasionally when everything is fine we PR to master
   - all:
-    - big code changes to make afl-fuzz thread-safe so afl-fuzz can spawn
+    - big code changes to make afl-fuzz thread-safe so afl-fuzz can spawn 
       multiple fuzzing threads in the future or even become a library
     - afl basic tools now report on the environment variables picked up
     - more tools get environment variable usage info in the help output
-    - force all output to stdout (some OK/SAY/WARN messages were sent to
-      stdout, some to stderr)
-    - uninstrumented mode uses an internal forkserver ("fauxserver")
-    - now builds with `-D_FORTIFY_SOURCE=2`
-    - drastically reduced number of (de)allocations during fuzzing
   - afl-fuzz:
     - python mutator modules and custom mutator modules now use the same
       interface and hence the API changed
     - AFL_AUTORESUME will resume execution without the need to specify `-i -`
-    - added experimental power schedules (-p):
-      - mmopt: ignores runtime of queue entries, gives higher weighting to
-               the last 5 queue entries
-      - rare: puts focus on queue entries that hits rare branches, also ignores
-              runtime
-  - llvm_mode: 
-    - added SNAPSHOT feature (using https://github.com/AFLplusplus/AFL-Snapshot-LKM)
-    - added Control Flow Integrity sanitizer (AFL_USE_CFISAN)
-    - added AFL_LLVM_INSTRUMENT option to control the instrumentation type
-      easier: DEFAULT, CFG (INSTRIM), LTO, CTX, NGRAM-x (x=2-16)
-    - made USE_TRACE_PC compile obsolete
+    - added experimental power schedule -p mmopt that ignores the runtime of
+      queue entries and gives higher weighting to the last 5 queue entries
+      it is currently experimental and subject to change but preliminary
+      results are good
   - LTO collision free instrumented added in llvm_mode with afl-clang-lto -
     note that this mode is amazing, but quite some targets won't compile
-  - Added llvm_mode NGRAM prev_loc coverage by Adrean Herrera
-    (https://github.com/adrianherrera/afl-ngram-pass/), activate by setting
-    AFL_LLVM_INSTRUMENT=NGRAM-<value> or AFL_LLVM_NGRAM_SIZE=<value>
-  - Added llvm_mode context sensitive branch coverage, activated by setting
-    AFL_LLVM_INSTRUMENT=CTX or AFL_LLVM_CTX=1
   - llvm_mode InsTrim mode:
-    - removed workaround for bug where paths were not instrumented and
+    - removed workaround for bug where paths were not instrumented and 
       imported fix by author
-    - made skipping 1 block functions an option and is disabled by default,
+    - made skipping 1 block functions an option and is disable by default,
       set AFL_LLVM_INSTRIM_SKIPSINGLEBLOCK=1 to re-enable this
   - qemu_mode:
     - qemu_mode now uses solely the internal capstone version to fix builds
@@ -60,8 +39,6 @@ sending a mail to <afl-users+subscribe@googlegroups.com>.
     - now supports hang mode `-H` to minimize hangs
     - fixed potential afl-tmin missbehavior for targets with multiple hangs
   - Pressing Control-c in afl-cmin did not terminate it for some OS
-  - the custom API was rewritten and is now the same for Python and shared
-    libraries.
 
 
 ### Version ++2.62c (release):
@@ -215,7 +192,7 @@ sending a mail to <afl-users+subscribe@googlegroups.com>.
 
   - big code refactoring:
     * all includes are now in include/
-    * all afl sources are now in src/ - see src/README.md
+    * all afl sources are now in src/ - see src/README.src
     * afl-fuzz was splitted up in various individual files for including
       functionality in other programs (e.g. forkserver, memory map, etc.)
       for better readability.

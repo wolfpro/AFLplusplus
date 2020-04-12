@@ -18,17 +18,18 @@ HELPER_PATH  = $(PREFIX)/lib/afl
 
 VERSION     = $(shell grep '^\#define VERSION ' ../config.h | cut -d '"' -f2)
 
-CFLAGS      ?= -O3 -funroll-loops -D_FORTIFY_SOURCE=2
-CFLAGS += -I ../include/ -Wall -g -Wno-pointer-sign
+CFLAGS      ?= -O3 -funroll-loops
+CFLAGS      += -I ../include/ -Wall -D_FORTIFY_SOURCE=2 -g -Wno-pointer-sign
 
-CFLAGS_ADD=$(USEHUGEPAGE:1=-DUSEHUGEPAGE)
-CFLAGS += $(CFLAGS_ADD)
+ifdef USEHUGEPAGE
+	CFLAGS += -DUSEHUGEPAGE
+endif
 
 all: libdislocator.so
 
 VPATH = ..
 libdislocator.so: libdislocator.so.c ../config.h
-	$(CC) $(CFLAGS) -shared -fPIC libdislocator.so.c -o ../$@ $(LDFLAGS)
+	$(CC) $(CFLAGS) -shared -fPIC $< -o ../$@ $(LDFLAGS)
 
 .NOTPARALLEL: clean
 

@@ -2,17 +2,17 @@
 
   <img align="right" src="https://raw.githubusercontent.com/andreafioraldi/AFLplusplus-website/master/static/logo_256x256.png" alt="AFL++ Logo">
 
-  ![Travis State](https://api.travis-ci.com/AFLplusplus/AFLplusplus.svg?branch=master)
+  ![Travis State](https://api.travis-ci.com/vanhauser-thc/AFLplusplus.svg?branch=master)
 
-  Release Version: [2.63c](https://github.com/AFLplusplus/AFLplusplus/releases)
+  Release Version: 2.62c
 
-  Github Version: 2.63d
+  Github Version: 2.62d
 
   includes all necessary/interesting changes from Google's afl 2.56b
 
   Originally developed by Michal "lcamtuf" Zalewski.
 
-  Repository: [https://github.com/AFLplusplus/AFLplusplus](https://github.com/AFLplusplus/AFLplusplus)
+  Repository: [https://github.com/vanhauser-thc/AFLplusplus](https://github.com/vanhauser-thc/AFLplusplus)
 
   afl++ is maintained by:
     * Marc "van Hauser" Heuse <mh@mh-sec.de>,
@@ -22,6 +22,7 @@
 
   Note that although afl now has a Google afl repository [https://github.com/Google/afl](https://github.com/Google/afl),
   it is unlikely to receive any noteable enhancements: [https://twitter.com/Dor3s/status/1154737061787660288](https://twitter.com/Dor3s/status/1154737061787660288)
+
 
 ## The enhancements compared to the original stock afl
 
@@ -44,9 +45,9 @@
 
   * Custom mutator by a library (instead of Python) by kyakdan
 
-  * Unicron mode which allows fuzzing of binaries from completely different platforms (integration provided by domenukk)
+  * unicorn_mode which allows fuzzing of binaries from completely different platforms (integration provided by domenukk)
 
-  * LAF-Intel or CompCov support for llvm_mode, qemu_mode and unicorn_mode
+  * laf-intel or CompCov support for llvm_mode, qemu_mode and unicorn_mode
 
   * NeverZero patch for afl-gcc, llvm_mode, qemu_mode and unicorn_mode which prevents a wrapping map value to zero, increases coverage
   
@@ -54,13 +55,11 @@
   
   * Win32 PE binary-only fuzzing with QEMU and Wine
 
-  * Radamsa mutator (enable with `-R` to add or `-RR` to run it exclusively).
+  * Radamsa mutator (enable with `-R` to add or `-RR` to run it exclusivly).
 
-  * QBDI mode to fuzz android native libraries via QBDI framework
+  * qbdi_mode: fuzz android native libraries via QBDI framework
 
   * The new CmpLog instrumentation for LLVM and QEMU inspired by [Redqueen](https://www.syssec.ruhr-uni-bochum.de/media/emma/veroeffentlichungen/2018/12/17/NDSS19-Redqueen.pdf)
-
-  * LLVM mode Ngram coverage by Adrian Herrera [https://github.com/adrianherrera/afl-ngram-pass](https://github.com/adrianherrera/afl-ngram-pass)
 
   A more thorough list is available in the PATCHES file.
 
@@ -68,33 +67,28 @@
   | ----------------------- |:-------:|:---------:|:----------:|:----------------:|:------------:|
   | NeverZero               |    x    |     x(1)  |      (2)   |         x        |       x      |
   | Persistent mode         |         |     x     |     x      | x86[_64]/arm[64] |       x      |
-  | LAF-Intel / CompCov     |         |     x     |            | x86[_64]/arm[64] | x86[_64]/arm |
+  | laf-intel / CompCov     |         |     x     |            | x86[_64]/arm[64] | x86[_64]/arm |
   | CmpLog                  |         |     x     |            | x86[_64]/arm[64] |              |
   | Whitelist               |         |     x     |     x      |        (x)(3)    |              |
-  | Non-colliding coverage  |         |     x(4)  |            |        (x)(5)    |              |
+  | non-colliding coverage  |         |     x(4)  |            |        (x)(5)    |              |
   | InsTrim                 |         |     x     |            |                  |              |
-  | Ngram prev_loc coverage |         |     x(6)  |            |                  |              |
-  | Context coverage        |         |     x     |            |                  |              |
-  | Snapshot LKM support    |         |     x     |            |        (x)(5)    |              |
 
   neverZero:
 
-  (1) default for LLVM >= 9.0, env var for older version due an efficiency bug in llvm <= 8
+  (1) only in LLVM >= 9.0 due to a bug in llvm in previous versions
 
-  (2) GCC creates non-performant code, hence it is disabled in gcc_plugin
+  (2) gcc creates non-performant code, hence it is disabled in gcc_plugin
 
   (3) partially via AFL_CODE_START/AFL_CODE_END
 
   (4) Only for LLVM >= 9 and not all targets compile
 
-  (5) upcoming, development in the branch
-
-  (6) not compatible with LTO and InsTrim and needs at least LLVM >= 4.1
+  (5) upcoming, development in branch
 
   So all in all this is the best-of afl that is currently out there :-)
 
   For new versions and additional information, check out:
-  [https://github.com/AFLplusplus/AFLplusplus](https://github.com/AFLplusplus/AFLplusplus)
+  [https://github.com/vanhauser-thc/AFLplusplus](https://github.com/vanhauser-thc/AFLplusplus)
 
   To compare notes with other users or get notified about major new features,
   send a mail to <afl-users+subscribe@googlegroups.com>.
@@ -102,25 +96,13 @@
   See [docs/QuickStartGuide.md](docs/QuickStartGuide.md) if you don't have time to
   read this file.
 
-## Branches
-
-  The following branches exist:
-
-  * [master/trunk](https://github.com/AFLplusplus/AFLplusplus/) : stable state of afl++ - it is synced from dev from time to
-    time when we are satisfied with it's stability
-  * [dev](https://github.com/AFLplusplus/AFLplusplus/tree/dev) : development state of afl++ - bleeding edge and you might catch a
-    checkout which does not compile or has a bug. *We only accept PRs in dev!!*
-  * (any other) : experimental branches to work on specific features or testing
-    new functionality or changes.
-
-  For releases, please see the [Releases](https://github.com/AFLplusplus/AFLplusplus/releases) tab.
 
 ## Google Summer of Code 2020 (and any other students and enthusiast developers)
 
 We are happy to be part of [Google Summer of Code 2020](https://summerofcode.withgoogle.com/organizations/5100744400699392/)! :-)
 
 We have several ideas we would like to see in AFL++ to make it even better.
-However, we already work on so many things that we do not have the time for
+However we already work on so many things that we do not have the time for
 all the big ideas.
 
 This can be your way to support and contribute to AFL++ - extend it to
@@ -131,7 +113,7 @@ We have an idea list in [docs/ideas.md](docs/ideas.md)
 For everyone who wants to contribute (and send pull requests) please read
 [CONTRIBUTING.md](CONTRIBUTING.md) before your submit.
 
-## Building and installing afl++
+## 0) Building and installing afl++
 
 afl++ has many build options.
 The easiest is to build and install everything:
@@ -162,7 +144,6 @@ These build targets exist:
 * clean: cleans everything. for qemu_mode and unicorn_mode it means it deletes all downloads as well
 * code-format: format the code, do this before you commit and send a PR please!
 * tests: runs test cases to ensure that all features are still working as they should
-* unit: perform unit tests (based on cmocka)
 * help: shows these build options
 
 [Unless you are on Mac OS X](https://developer.apple.com/library/archive/qa/qa1118/_index.html) you can also build statically linked versions of the 
@@ -176,7 +157,6 @@ These build options exist:
 
 * STATIC - compile AFL++ static
 * ASAN_BUILD - compiles with memory sanitizer for debug purposes
-* PROFILING - compile with profiling information (gprof)
 * AFL_NO_X86 - if compiling on non-intel/amd platforms
 * LLVM_CONFIG - if your distro doesn't use the standard name for llvm-config (e.g. Debian)
 
@@ -193,7 +173,7 @@ $ sudo docker build -t aflplusplus .
 ```
 
 
-## Challenges of guided fuzzing
+## 1) Challenges of guided fuzzing
 
 Fuzzing is one of the most powerful and proven strategies for identifying
 security issues in real-world software; it is responsible for the vast
@@ -208,9 +188,9 @@ There have been numerous attempts to solve this problem. One of the early
 approaches - pioneered by Tavis Ormandy - is corpus distillation. The method
 relies on coverage signals to select a subset of interesting seeds from a
 massive, high-quality corpus of candidate files, and then fuzz them by
-traditional means. The approach works exceptionally well but requires such
+traditional means. The approach works exceptionally well, but requires such
 a corpus to be readily available. In addition, block coverage measurements
-provide only a very simplistic understanding of the program state and are less
+provide only a very simplistic understanding of program state, and are less
 useful for guiding the fuzzing effort in the long haul.
 
 Other, more sophisticated research has focused on techniques such as program
@@ -220,7 +200,7 @@ to suffer from reliability and performance problems in practical uses - and
 currently do not offer a viable alternative to "dumb" fuzzing techniques.
 
 
-## The afl-fuzz approach
+## 2) The afl-fuzz approach
 
 American Fuzzy Lop is a brute-force fuzzer coupled with an exceedingly simple
 but rock-solid instrumentation-guided genetic algorithm. It uses a modified
@@ -231,7 +211,7 @@ Simplifying a bit, the overall algorithm can be summed up as:
 
   1) Load user-supplied initial test cases into the queue,
 
-  2) Take the next input file from the queue,
+  2) Take next input file from the queue,
 
   3) Attempt to trim the test case to the smallest size that doesn't alter
      the measured behavior of the program,
@@ -259,10 +239,10 @@ The fuzzer is thoroughly tested to deliver out-of-the-box performance far
 superior to blind fuzzing or coverage-only tools.
 
 
-## Instrumenting programs for use with AFL
+## 3) Instrumenting programs for use with AFL
 
 PLEASE NOTE: llvm_mode compilation with afl-clang-fast/afl-clang-fast++
-instead of afl-gcc/afl-g++ is much faster and has many cool features.
+instead of afl-gcc/afl-g++ is much faster and has a few cool features.
 See llvm_mode/ - however few code does not compile with llvm.
 We support llvm versions 3.8.0 to 11.
 
@@ -298,7 +278,7 @@ Using partial instrumentation is also recommended, see
 When testing libraries, you need to find or write a simple program that reads
 data from stdin or from a file and passes it to the tested library. In such a
 case, it is essential to link this executable against a static version of the
-instrumented library or to make sure that the correct .so file is loaded at
+instrumented library, or to make sure that the correct .so file is loaded at
 runtime (usually by setting `LD_LIBRARY_PATH`). The simplest option is a static
 build, usually possible via:
 
@@ -315,7 +295,7 @@ PS. ASAN users are advised to review [docs/notes_for_asan.md](docs/notes_for_asa
 file for important caveats.
 
 
-## Instrumenting binary-only apps
+## 4) Instrumenting binary-only apps
 
 When source code is *NOT* available, the fuzzer offers experimental support for
 fast, on-the-fly instrumentation of black-box binaries. This is accomplished
@@ -343,9 +323,10 @@ the speed compared to qemu_mode.
 A more comprehensive description of these and other options can be found in
 [docs/binaryonly_fuzzing.md](docs/binaryonly_fuzzing.md)
 
-## Good examples and writeups
 
-Here are some good writeups to show how to effectively use AFL++:
+## 5) Good examples and writeups
+
+Here are some good writeups to show how to effectibly use AFL++:
 
  * [https://aflplus.plus/docs/tutorials/libxml2_tutorial/](https://aflplus.plus/docs/tutorials/libxml2_tutorial/)
  * [https://bananamafia.dev/post/gb-fuzz/](https://bananamafia.dev/post/gb-fuzz/)
@@ -358,7 +339,7 @@ structure is), these two links have you covered:
 
 If you find other good ones, please send them to us :-)
 
-## Power schedules
+## 6) Power schedules
 
 The power schedules were copied from Marcel Böhme's excellent AFLfast
 implementation and expand on the ability to discover new paths and
@@ -372,10 +353,9 @@ The available schedules are:
  - quad
  - lin
  - exploit
- - mmopt (experimental)
- - rare (experimental)
+ - mmopt
 
-In parallel mode (-M/-S, several instances with the shared queue), we suggest to
+In parallel mode (-M/-S, several instances with shared queue), we suggest to
 run the master using the explore or fast schedule (-p explore) and the slaves
 with a combination of cut-off-exponential (-p coe), exponential (-p fast),
 explore (-p explore) and mmopt (-p mmopt) schedules. If a schedule does
@@ -383,13 +363,13 @@ not perform well for a target, restart the slave with a different schedule.
 
 In single mode, using -p fast is usually slightly more beneficial than the
 default explore mode.
-(We don't want to change the default behavior of afl, so "fast" has not been
+(We don't want to change the default behaviour of afl, so "fast" has not been
 made the default mode).
 
 More details can be found in the paper published at the 23rd ACM Conference on
 Computer and Communications Security [CCS'16](https://www.sigsac.org/ccs/CCS2016/accepted-papers/)
 
-## Choosing initial test cases
+## 7) Choosing initial test cases
 
 To operate correctly, the fuzzer requires one or more starting file that
 contains a good example of the input data normally expected by the targeted
@@ -410,7 +390,7 @@ the afl-cmin utility to identify a subset of functionally distinct files that
 exercise different code paths in the target binary.
 
 
-## Fuzzing binaries
+## 8) Fuzzing binaries
 
 The fuzzing process itself is carried out by the afl-fuzz utility. This program
 requires a read-only directory with initial test cases, a separate place to
@@ -447,18 +427,18 @@ steps, which can take several days, but tend to produce neat test cases. If you
 want quick & dirty results right away - akin to zzuf and other traditional
 fuzzers - add the -d option to the command line.
 
-## Interpreting output
+## 9) Interpreting output
 
 See the [docs/status_screen.md](docs/status_screen.md) file for information on
 how to interpret the displayed stats and monitor the health of the process. Be
 sure to consult this file especially if any UI elements are highlighted in red.
 
-The fuzzing process will continue until you press Ctrl-C. At a minimum, you want
+The fuzzing process will continue until you press Ctrl-C. At minimum, you want
 to allow the fuzzer to complete one queue cycle, which may take anywhere from a
 couple of hours to a week or so.
 
 There are three subdirectories created within the output directory and updated
-in real-time:
+in real time:
 
   - queue/   - test cases for every distinctive execution path, plus all the
                starting files given by the user. This is the synthesized corpus
@@ -483,7 +463,7 @@ involve any state transitions not seen in previously-recorded faults. If a
 single bug can be reached in multiple ways, there will be some count inflation
 early in the process, but this should quickly taper off.
 
-The file names for crashes and hangs are correlated with the parent, non-faulting
+The file names for crashes and hangs are correlated with parent, non-faulting
 queue entries. This should help with debugging.
 
 When you can't reproduce a crash found by afl-fuzz, the most likely cause is
@@ -507,7 +487,7 @@ If you have gnuplot installed, you can also generate some pretty graphs for any
 active fuzzing task using afl-plot. For an example of how this looks like,
 see [http://lcamtuf.coredump.cx/afl/plot/](http://lcamtuf.coredump.cx/afl/plot/).
 
-## Parallelized fuzzing
+## 10) Parallelized fuzzing
 
 Every instance of afl-fuzz takes up roughly one core. This means that on
 multi-core systems, parallelization is necessary to fully utilize the hardware.
@@ -518,7 +498,7 @@ The parallel fuzzing mode also offers a simple way for interfacing AFL to other
 fuzzers, to symbolic or concolic execution engines, and so forth; again, see the
 last section of [docs/parallel_fuzzing.md](docs/parallel_fuzzing.md) for tips.
 
-## Fuzzer dictionaries
+## 12) Fuzzer dictionaries
 
 By default, afl-fuzz mutation engine is optimized for compact data formats -
 say, images, multimedia, compressed data, regular expression syntax, or shell
@@ -547,13 +527,13 @@ instrumentation feedback alone. This actually works in practice, say:
 PS. Even when no explicit dictionary is given, afl-fuzz will try to extract
 existing syntax tokens in the input corpus by watching the instrumentation
 very closely during deterministic byte flips. This works for some types of
-parsers and grammars but isn't nearly as good as the -x mode.
+parsers and grammars, but isn't nearly as good as the -x mode.
 
 If a dictionary is really hard to come by, another option is to let AFL run
-for a while and then use the token capture library that comes as a companion
+for a while, and then use the token capture library that comes as a companion
 utility with AFL. For that, see [libtokencap/README.md](libtokencap/README.tokencap.md).
 
-## Crash triage
+## 13) Crash triage
 
 The coverage-based grouping of crashes usually produces a small data set that
 can be quickly triaged manually or with a very simple GDB or Valgrind script.
@@ -565,7 +545,7 @@ difficult to quickly evaluate for exploitability without a lot of debugging and
 code analysis work. To assist with this task, afl-fuzz supports a very unique
 "crash exploration" mode enabled with the -C flag.
 
-In this mode, the fuzzer takes one or more crashing test cases as the input
+In this mode, the fuzzer takes one or more crashing test cases as the input,
 and uses its feedback-driven fuzzing strategies to very quickly enumerate all
 code paths that can be reached in the program while keeping it in the
 crashing state.
@@ -600,11 +580,12 @@ be critical, and which are not; while not bulletproof, it can often offer quick
 insights into complex file formats. More info about its operation can be found
 near the end of [docs/technical_details.md](docs/technical_details.md).
 
-## Going beyond crashes
+
+## 14) Going beyond crashes
 
 Fuzzing is a wonderful and underutilized technique for discovering non-crashing
 design and implementation errors, too. Quite a few interesting bugs have been
-found by modifying the target programs to call abort() when say:
+found by modifying the target programs to call abort() when, say:
 
   - Two bignum libraries produce different outputs when given the same
     fuzzer-generated input,
@@ -623,10 +604,10 @@ if you are the maintainer of a particular package, you can make this code
 conditional with `#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION` (a flag also
 shared with libfuzzer) or `#ifdef __AFL_COMPILER` (this one is just for AFL).
 
-## Common-sense risks
+## 15) Common-sense risks
 
 Please keep in mind that, similarly to many other computationally-intensive
-tasks, fuzzing may put a strain on your hardware and on the OS. In particular:
+tasks, fuzzing may put strain on your hardware and on the OS. In particular:
 
   - Your CPU will run hot and will need adequate cooling. In most cases, if
     cooling is insufficient or stops working properly, CPU speeds will be
@@ -652,14 +633,14 @@ tasks, fuzzing may put a strain on your hardware and on the OS. In particular:
     $ iostat -d 3 -x -k [...optional disk ID...]
 ```
 
-## Known limitations & areas for improvement
+## 16) Known limitations & areas for improvement
 
 Here are some of the most important caveats for AFL:
 
   - AFL detects faults by checking for the first spawned process dying due to
     a signal (SIGSEGV, SIGABRT, etc). Programs that install custom handlers for
     these signals may need to have the relevant code commented out. In the same
-    vein, faults in child processes spawned by the fuzzed target may evade
+    vein, faults in child processed spawned by the fuzzed target may evade
     detection unless you manually add some code to catch that.
 
   - As with any other brute-force tool, the fuzzer offers limited coverage if
@@ -692,7 +673,7 @@ Here are some of the most important caveats for AFL:
 
 Beyond this, see INSTALL for platform-specific tips.
 
-## Special thanks
+## 17) Special thanks
 
 Many of the improvements to the original afl and afl++ wouldn't be possible
 without feedback, bug reports, or patches from:
@@ -746,10 +727,10 @@ without feedback, bug reports, or patches from:
 Thank you!
 (For people sending pull requests - please add yourself to this list :-)
 
-## Contact
+## 18) Contact
 
 Questions? Concerns? Bug reports? The contributors can be reached via
-[https://github.com/AFLplusplus/AFLplusplus](https://github.com/AFLplusplus/AFLplusplus)
+[https://github.com/vanhauser-thc/AFLplusplus](https://github.com/vanhauser-thc/AFLplusplus)
 
 There is also a mailing list for the afl project; to join, send a mail to
 <afl-users+subscribe@googlegroups.com>. Or, if you prefer to browse

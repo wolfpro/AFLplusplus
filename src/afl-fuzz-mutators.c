@@ -7,7 +7,6 @@
    Now maintained by  Marc Heuse <mh@mh-sec.de>,
                         Heiko Eißfeldt <heiko.eissfeldt@hexco.de> and
                         Andrea Fioraldi <andreafioraldi@gmail.com>
-                        Dominik Maier <mail@dmnk.co>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
    Copyright 2019-2020 AFLplusplus Project. All rights reserved.
@@ -28,7 +27,7 @@
 
 void load_custom_mutator(afl_state_t *, const char *);
 #ifdef USE_PYTHON
-void load_custom_mutator_py(afl_state_t *, char *);
+void load_custom_mutator_py(afl_state_t *, const char *);
 #endif
 
 void setup_custom_mutator(afl_state_t *afl) {
@@ -60,7 +59,10 @@ void setup_custom_mutator(afl_state_t *afl) {
       FATAL(
           "MOpt and Python mutator are mutually exclusive. We accept pull "
           "requests that integrates MOpt with the optional mutators "
-          "(custom/radamsa/redqueen/...).");
+          "(custom/radamsa/redquenn/...).");
+
+    if (init_py_module(afl, module_name))
+      FATAL("Failed to initialize Python module");
 
     load_custom_mutator_py(afl, module_name);
 
@@ -77,20 +79,18 @@ void destroy_custom_mutator(afl_state_t *afl) {
 
   if (afl->mutator) {
 
-    afl->mutator->afl_custom_deinit(afl->mutator->data);
+    if (afl->mutator->dh)
+      dlclose(afl->mutator->dh);
+    else {
 
-    if (afl->mutator->dh) dlclose(afl->mutator->dh);
-
-    if (afl->mutator->pre_save_buf) {
-
-      ck_free(afl->mutator->pre_save_buf);
-      afl->mutator->pre_save_buf = NULL;
-      afl->mutator->pre_save_size = 0;
+      /* Python mutator */
+#ifdef USE_PYTHON
+      finalize_py_module(afl);
+#endif
 
     }
 
     ck_free(afl->mutator);
-    afl->mutator = NULL;
 
   }
 
@@ -100,8 +100,6 @@ void load_custom_mutator(afl_state_t *afl, const char *fn) {
 
   void *dh;
   afl->mutator = ck_alloc(sizeof(struct custom_mutator));
-  afl->mutator->pre_save_buf = NULL;
-  afl->mutator->pre_save_size = 0;
 
   afl->mutator->name = fn;
   ACTF("Loading custom mutator library from '%s'...", fn);
@@ -111,15 +109,10 @@ void load_custom_mutator(afl_state_t *afl, const char *fn) {
   afl->mutator->dh = dh;
 
   /* Mutator */
-  /* "afl_custom_init", required */
+  /* "afl_custom_init", optional for backward compatibility */
   afl->mutator->afl_custom_init = dlsym(dh, "afl_custom_init");
   if (!afl->mutator->afl_custom_init)
-    FATAL("Symbol 'afl_custom_init' not found.");
-
-  /* "afl_custom_deinit", required */
-  afl->mutator->afl_custom_deinit = dlsym(dh, "afl_custom_deinit");
-  if (!afl->mutator->afl_custom_deinit)
-    FATAL("Symbol 'afl_custom_deinit' not found.");
+    WARNF("Symbol 'afl_custom_init' not found.");
 
   /* "afl_custom_fuzz" or "afl_custom_mutator", required */
   afl->mutator->afl_custom_fuzz = dlsym(dh, "afl_custom_fuzz");
@@ -193,46 +186,42 @@ void load_custom_mutator(afl_state_t *afl, const char *fn) {
 
   /* Initialize the custom mutator */
   if (afl->mutator->afl_custom_init)
-    afl->mutator->data =
-        afl->mutator->afl_custom_init(afl, rand_below(afl, 0xFFFFFFFF));
+    afl->mutator->afl_custom_init(afl, UR(afl, 0xFFFFFFFF));
 
 }
 
 u8 trim_case_custom(afl_state_t *afl, struct queue_entry *q, u8 *in_buf) {
 
+  static u8 tmp[64];
+  static u8 clean_trace[MAP_SIZE];
+
   u8  needs_write = 0, fault = 0;
   u32 trim_exec = 0;
   u32 orig_len = q->len;
 
-  u8 val_buf[STRINGIFY_VAL_SIZE_MAX];
-
-  afl->stage_name = afl->stage_name_buf;
+  afl->stage_name = tmp;
   afl->bytes_trim_in += q->len;
 
   /* Initialize trimming in the custom mutator */
   afl->stage_cur = 0;
-  afl->stage_max =
-      afl->mutator->afl_custom_init_trim(afl->mutator->data, in_buf, q->len);
-  if (unlikely(afl->stage_max) < 0)
-    FATAL("custom_init_trim error ret: %d", afl->stage_max);
+  afl->stage_max = afl->mutator->afl_custom_init_trim(afl, in_buf, q->len);
+
   if (afl->not_on_tty && afl->debug)
     SAYF("[Custom Trimming] START: Max %d iterations, %u bytes", afl->stage_max,
          q->len);
 
   while (afl->stage_cur < afl->stage_max) {
 
-    u8 *retbuf = NULL;
-
-    sprintf(afl->stage_name_buf, "ptrim %s",
-            u_stringify_int(val_buf, trim_exec));
+    sprintf(tmp, "ptrim %s", DI(trim_exec));
 
     u32 cksum;
 
-    size_t retlen = afl->mutator->afl_custom_trim(afl->mutator->data, &retbuf);
+    u8 *   retbuf = NULL;
+    size_t retlen = 0;
 
-    if (unlikely(!retbuf))
-      FATAL("custom_trim failed (ret %zd)", retlen);
-    else if (unlikely(retlen > orig_len))
+    afl->mutator->afl_custom_trim(afl, &retbuf, &retlen);
+
+    if (retlen > orig_len)
       FATAL(
           "Trimmed data returned by custom mutator is larger than original "
           "data");
@@ -242,7 +231,12 @@ u8 trim_case_custom(afl_state_t *afl, struct queue_entry *q, u8 *in_buf) {
     fault = run_target(afl, afl->fsrv.exec_tmout);
     ++afl->trim_execs;
 
-    if (afl->stop_soon || fault == FAULT_ERROR) { goto abort_trimming; }
+    if (afl->stop_soon || fault == FAULT_ERROR) {
+
+      ck_free(retbuf);
+      goto abort_trimming;
+
+    }
 
     cksum = hash32(afl->fsrv.trace_bits, MAP_SIZE, HASH_CONST);
 
@@ -257,13 +251,12 @@ u8 trim_case_custom(afl_state_t *afl, struct queue_entry *q, u8 *in_buf) {
       if (!needs_write) {
 
         needs_write = 1;
-        memcpy(afl->clean_trace_custom, afl->fsrv.trace_bits, MAP_SIZE);
+        memcpy(clean_trace, afl->fsrv.trace_bits, MAP_SIZE);
 
       }
 
       /* Tell the custom mutator that the trimming was successful */
-      afl->stage_cur =
-          afl->mutator->afl_custom_post_trim(afl->mutator->data, 1);
+      afl->stage_cur = afl->mutator->afl_custom_post_trim(afl, 1);
 
       if (afl->not_on_tty && afl->debug)
         SAYF("[Custom Trimming] SUCCESS: %d/%d iterations (now at %u bytes)",
@@ -272,15 +265,14 @@ u8 trim_case_custom(afl_state_t *afl, struct queue_entry *q, u8 *in_buf) {
     } else {
 
       /* Tell the custom mutator that the trimming was unsuccessful */
-      afl->stage_cur =
-          afl->mutator->afl_custom_post_trim(afl->mutator->data, 0);
-      if (unlikely(afl->stage_cur < 0))
-        FATAL("Error ret in custom_post_trim: %d", afl->stage_cur);
+      afl->stage_cur = afl->mutator->afl_custom_post_trim(afl, 0);
       if (afl->not_on_tty && afl->debug)
         SAYF("[Custom Trimming] FAILURE: %d/%d iterations", afl->stage_cur,
              afl->stage_max);
 
     }
+
+    ck_free(retbuf);
 
     /* Since this can be slow, update the screen every now and then. */
 
@@ -307,7 +299,7 @@ u8 trim_case_custom(afl_state_t *afl, struct queue_entry *q, u8 *in_buf) {
     ck_write(fd, in_buf, q->len, q->fname);
     close(fd);
 
-    memcpy(afl->fsrv.trace_bits, afl->clean_trace_custom, MAP_SIZE);
+    memcpy(afl->fsrv.trace_bits, clean_trace, MAP_SIZE);
     update_bitmap_score(afl, q);
 
   }
@@ -318,4 +310,54 @@ abort_trimming:
   return fault;
 
 }
+
+#ifdef USE_PYTHON
+void load_custom_mutator_py(afl_state_t *afl, const char *module_name) {
+
+  PyObject **py_functions = afl->py_functions;
+
+  afl->mutator = ck_alloc(sizeof(struct custom_mutator));
+
+  afl->mutator->name = module_name;
+  ACTF("Loading Python mutator library from '%s'...", module_name);
+
+  if (py_functions[PY_FUNC_INIT]) afl->mutator->afl_custom_init = init_py;
+
+  /* "afl_custom_fuzz" should not be NULL, but the interface of Python mutator
+     is quite different from the custom mutator. */
+  afl->mutator->afl_custom_fuzz = fuzz_py;
+
+  if (py_functions[PY_FUNC_PRE_SAVE])
+    afl->mutator->afl_custom_pre_save = pre_save_py;
+
+  if (py_functions[PY_FUNC_INIT_TRIM])
+    afl->mutator->afl_custom_init_trim = init_trim_py;
+
+  if (py_functions[PY_FUNC_POST_TRIM])
+    afl->mutator->afl_custom_post_trim = post_trim_py;
+
+  if (py_functions[PY_FUNC_TRIM]) afl->mutator->afl_custom_trim = trim_py;
+
+  if (py_functions[PY_FUNC_HAVOC_MUTATION])
+    afl->mutator->afl_custom_havoc_mutation = havoc_mutation_py;
+
+  if (py_functions[PY_FUNC_HAVOC_MUTATION_PROBABILITY])
+    afl->mutator->afl_custom_havoc_mutation_probability =
+        havoc_mutation_probability_py;
+
+  if (py_functions[PY_FUNC_QUEUE_GET])
+    afl->mutator->afl_custom_queue_get = queue_get_py;
+
+  if (py_functions[PY_FUNC_QUEUE_NEW_ENTRY])
+    afl->mutator->afl_custom_queue_new_entry = queue_new_entry_py;
+
+  OKF("Python mutator '%s' installed successfully.", module_name);
+
+  /* Initialize the custom mutator */
+  if (afl->mutator->afl_custom_init)
+    afl->mutator->afl_custom_init(afl, UR(afl, 0xFFFFFFFF));
+
+}
+
+#endif
 

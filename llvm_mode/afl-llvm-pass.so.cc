@@ -2,14 +2,11 @@
    american fuzzy lop++ - LLVM-mode instrumentation pass
    ---------------------------------------------------
 
-   Written by Laszlo Szekeres <lszekeres@google.com>,
-              Adrian Herrera <adrian.herrera@anu.edu.au>,
+   Written by Laszlo Szekeres <lszekeres@google.com> and
               Michal Zalewski
 
    LLVM integration design comes from Laszlo Szekeres. C bits copied-and-pasted
    from afl-as.c are Michal's fault.
-
-   NGRAM previous location coverage comes from Adrian Herrera.
 
    Copyright 2015, 2016 Google Inc. All rights reserved.
    Copyright 2019-2020 AFLplusplus Project. All rights reserved.
@@ -30,6 +27,7 @@
 
 #include "config.h"
 #include "debug.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -49,7 +47,6 @@ typedef long double max_align_t;
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/MathExtras.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 
 #if LLVM_VERSION_MAJOR > 3 || \
@@ -60,8 +57,6 @@ typedef long double max_align_t;
 #include "llvm/DebugInfo.h"
 #include "llvm/Support/CFG.h"
 #endif
-
-#include "llvm-ngram-coverage.h"
 
 using namespace llvm;
 
@@ -123,9 +118,6 @@ class AFLCoverage : public ModulePass {
 
  protected:
   std::list<std::string> myWhitelist;
-  uint32_t               ngram_size = 0;
-  uint32_t               debug = 0;
-  char *                 ctx_str = NULL;
 
 };
 
@@ -133,40 +125,12 @@ class AFLCoverage : public ModulePass {
 
 char AFLCoverage::ID = 0;
 
-/* needed up to 3.9.0 */
-#if LLVM_VERSION_MAJOR == 3 && \
-    (LLVM_VERSION_MINOR < 9 || \
-     (LLVM_VERSION_MINOR == 9 && LLVM_VERSION_PATCH < 1))
-uint64_t PowerOf2Ceil(unsigned in) {
-
-  uint64_t in64 = in - 1;
-  in64 |= (in64 >> 1);
-  in64 |= (in64 >> 2);
-  in64 |= (in64 >> 4);
-  in64 |= (in64 >> 8);
-  in64 |= (in64 >> 16);
-  in64 |= (in64 >> 32);
-  return in64 + 1;
-
-}
-
-#endif
-
-/* #if LLVM_VERSION_STRING >= "4.0.1" */
-#if LLVM_VERSION_MAJOR >= 4 || \
-    (LLVM_VERSION_MAJOR == 4 && LLVM_VERSION_PATCH >= 1)
-#define AFL_HAVE_VECTOR_INTRINSICS 1
-#endif
 bool AFLCoverage::runOnModule(Module &M) {
 
   LLVMContext &C = M.getContext();
 
-  IntegerType *Int8Ty = IntegerType::getInt8Ty(C);
-  IntegerType *Int32Ty = IntegerType::getInt32Ty(C);
-#ifdef AFL_HAVE_VECTOR_INTRINSICS
-  IntegerType *IntLocTy =
-      IntegerType::getIntNTy(C, sizeof(PREV_LOC_T) * CHAR_BIT);
-#endif
+  IntegerType *   Int8Ty = IntegerType::getInt8Ty(C);
+  IntegerType *   Int32Ty = IntegerType::getInt32Ty(C);
   struct timeval  tv;
   struct timezone tz;
   u32             rand_seed;
@@ -181,12 +145,9 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   char be_quiet = 0;
 
-  if (getenv("AFL_DEBUG")) debug = 1;
-
   if ((isatty(2) && !getenv("AFL_QUIET")) || getenv("AFL_DEBUG") != NULL) {
 
-    SAYF(cCYA "afl-llvm-pass" VERSION cRST
-              " by <lszekeres@google.com> and <adrian.herrera@anu.edu.au>\n");
+    SAYF(cCYA "afl-llvm-pass" VERSION cRST " by <lszekeres@google.com>\n");
 
   } else
 
@@ -209,107 +170,23 @@ bool AFLCoverage::runOnModule(Module &M) {
   char *neverZero_counters_str = getenv("AFL_LLVM_NOT_ZERO");
 #endif
 
-  unsigned PrevLocSize;
-
-  char *ngram_size_str = getenv("AFL_LLVM_NGRAM_SIZE");
-  if (!ngram_size_str) ngram_size_str = getenv("AFL_NGRAM_SIZE");
-  ctx_str = getenv("AFL_LLVM_CTX");
-
-#ifdef AFL_HAVE_VECTOR_INTRINSICS
-  /* Decide previous location vector size (must be a power of two) */
-  VectorType *PrevLocTy;
-
-  if (ngram_size_str)
-    if (sscanf(ngram_size_str, "%u", &ngram_size) != 1 || ngram_size < 2 ||
-        ngram_size > NGRAM_SIZE_MAX)
-      FATAL(
-          "Bad value of AFL_NGRAM_SIZE (must be between 2 and NGRAM_SIZE_MAX "
-          "(%u))",
-          NGRAM_SIZE_MAX);
-
-  if (ngram_size == 1) ngram_size = 0;
-  if (ngram_size)
-    PrevLocSize = ngram_size - 1;
-  else
-#else
-  if (ngram_size_str)
-    FATAL("Sorry, NGRAM branch coverage is not supported with llvm version %s!",
-          LLVM_VERSION_STRING);
-#endif
-    PrevLocSize = 1;
-
-#ifdef AFL_HAVE_VECTOR_INTRINSICS
-  uint64_t PrevLocVecSize = PowerOf2Ceil(PrevLocSize);
-  if (ngram_size) PrevLocTy = VectorType::get(IntLocTy, PrevLocVecSize);
-#endif
-
-  if (ctx_str && ngram_size_str)
-    FATAL("you must decide between NGRAM and CTX instrumentation");
-
   /* Get globals for the SHM region and the previous location. Note that
      __afl_prev_loc is thread-local. */
 
   GlobalVariable *AFLMapPtr =
       new GlobalVariable(M, PointerType::get(Int8Ty, 0), false,
                          GlobalValue::ExternalLinkage, 0, "__afl_area_ptr");
-  GlobalVariable *AFLPrevLoc;
-  GlobalVariable *AFLContext;
 
-  if (ctx_str)
 #ifdef __ANDROID__
-    AFLContext = new GlobalVariable(
-        M, Int32Ty, false, GlobalValue::ExternalLinkage, 0, "__afl_prev_ctx");
+  GlobalVariable *AFLPrevLoc = new GlobalVariable(
+      M, Int32Ty, false, GlobalValue::ExternalLinkage, 0, "__afl_prev_loc");
 #else
-    AFLContext = new GlobalVariable(
-        M, Int32Ty, false, GlobalValue::ExternalLinkage, 0, "__afl_prev_ctx", 0,
-        GlobalVariable::GeneralDynamicTLSModel, 0, false);
-#endif
-
-#ifdef AFL_HAVE_VECTOR_INTRINSICS
-  if (ngram_size)
-#ifdef __ANDROID__
-    AFLPrevLoc = new GlobalVariable(
-        M, PrevLocTy, /* isConstant */ false, GlobalValue::ExternalLinkage,
-        /* Initializer */ nullptr, "__afl_prev_loc");
-#else
-    AFLPrevLoc = new GlobalVariable(
-        M, PrevLocTy, /* isConstant */ false, GlobalValue::ExternalLinkage,
-        /* Initializer */ nullptr, "__afl_prev_loc",
-        /* InsertBefore */ nullptr, GlobalVariable::GeneralDynamicTLSModel,
-        /* AddressSpace */ 0, /* IsExternallyInitialized */ false);
-#endif
-  else
-#endif
-#ifdef __ANDROID__
-    AFLPrevLoc = new GlobalVariable(
-        M, Int32Ty, false, GlobalValue::ExternalLinkage, 0, "__afl_prev_loc");
-#else
-  AFLPrevLoc = new GlobalVariable(
+  GlobalVariable *AFLPrevLoc = new GlobalVariable(
       M, Int32Ty, false, GlobalValue::ExternalLinkage, 0, "__afl_prev_loc", 0,
       GlobalVariable::GeneralDynamicTLSModel, 0, false);
 #endif
-
-#ifdef AFL_HAVE_VECTOR_INTRINSICS
-  /* Create the vector shuffle mask for updating the previous block history.
-     Note that the first element of the vector will store cur_loc, so just set
-     it to undef to allow the optimizer to do its thing. */
-
-  SmallVector<Constant *, 32> PrevLocShuffle = {UndefValue::get(Int32Ty)};
-
-  for (unsigned I = 0; I < PrevLocSize - 1; ++I)
-    PrevLocShuffle.push_back(ConstantInt::get(Int32Ty, I));
-
-  for (unsigned I = PrevLocSize; I < PrevLocVecSize; ++I)
-    PrevLocShuffle.push_back(ConstantInt::get(Int32Ty, PrevLocSize));
-
-  Constant *PrevLocShuffleMask = ConstantVector::get(PrevLocShuffle);
-#endif
-
-  // other constants we need
   ConstantInt *Zero = ConstantInt::get(Int8Ty, 0);
   ConstantInt *One = ConstantInt::get(Int8Ty, 1);
-
-  LoadInst *PrevCtx;  // CTX sensitive coverage
 
   /* Instrument all the things! */
 
@@ -317,62 +194,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   for (auto &F : M) {
 
-    int has_calls = 0;
-    if (debug)
-      fprintf(stderr, "FUNCTION: %s (%zu)\n", F.getName().str().c_str(),
-              F.size());
-
     if (isBlacklisted(&F)) continue;
-
-    // AllocaInst *CallingContext = nullptr;
-
-    if (ctx_str && F.size() > 1) {  // Context sensitive coverage
-      // load the context ID of the previous function and write to to a local
-      // variable on the stack
-      auto                 bb = &F.getEntryBlock();
-      BasicBlock::iterator IP = bb->getFirstInsertionPt();
-      IRBuilder<>          IRB(&(*IP));
-      PrevCtx = IRB.CreateLoad(AFLContext);
-      PrevCtx->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
-
-      // does the function have calls? and is any of the calls larger than one
-      // basic block?
-      has_calls = 0;
-      for (auto &BB : F) {
-
-        if (has_calls) break;
-        for (auto &IN : BB) {
-
-          CallInst *callInst = nullptr;
-          if ((callInst = dyn_cast<CallInst>(&IN))) {
-
-            Function *Callee = callInst->getCalledFunction();
-            if (!Callee || Callee->size() < 2)
-              continue;
-            else {
-
-              has_calls = 1;
-              break;
-
-            }
-
-          }
-
-        }
-
-      }
-
-      // if yes we store a context ID for this function in the global var
-      if (has_calls) {
-
-        ConstantInt *NewCtx = ConstantInt::get(Int32Ty, AFL_R(MAP_SIZE));
-        StoreInst *  StoreCtx = IRB.CreateStore(NewCtx, AFLContext);
-        StoreCtx->setMetadata(M.getMDKindID("nosanitize"),
-                              MDNode::get(C, None));
-
-      }
-
-    }
 
     for (auto &BB : F) {
 
@@ -488,22 +310,6 @@ bool AFLCoverage::runOnModule(Module &M) {
 
       }
 
-      // in CTX mode we have to restore the original context for the caller -
-      // she might be calling other functions which need the correct CTX
-      if (ctx_str && has_calls) {
-
-        Instruction *Inst = BB.getTerminator();
-        if (isa<ReturnInst>(Inst) || isa<ResumeInst>(Inst)) {
-
-          IRBuilder<> Post_IRB(Inst);
-          StoreInst * RestoreCtx = Post_IRB.CreateStore(PrevCtx, AFLContext);
-          RestoreCtx->setMetadata(M.getMDKindID("nosanitize"),
-                                  MDNode::get(C, None));
-
-        }
-
-      }
-
       if (AFL_R(100) >= inst_ratio) continue;
 
       /* Make up cur_loc */
@@ -550,50 +356,20 @@ bool AFLCoverage::runOnModule(Module &M) {
       // fprintf(stderr, " == %d\n", more_than_one);
       if (more_than_one != 1) continue;
 #endif
-
-      ConstantInt *CurLoc;
-
-#ifdef AFL_HAVE_VECTOR_INTRINSICS
-      if (ngram_size)
-        CurLoc = ConstantInt::get(IntLocTy, cur_loc);
-      else
-#endif
-        CurLoc = ConstantInt::get(Int32Ty, cur_loc);
+      ConstantInt *CurLoc = ConstantInt::get(Int32Ty, cur_loc);
 
       /* Load prev_loc */
 
       LoadInst *PrevLoc = IRB.CreateLoad(AFLPrevLoc);
       PrevLoc->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
-      Value *PrevLocTrans;
-
-#ifdef AFL_HAVE_VECTOR_INTRINSICS
-      /* "For efficiency, we propose to hash the tuple as a key into the
-         hit_count map as (prev_block_trans << 1) ^ curr_block_trans, where
-         prev_block_trans = (block_trans_1 ^ ... ^ block_trans_(n-1)" */
-
-      if (ngram_size)
-        PrevLocTrans = IRB.CreateXorReduce(PrevLoc);
-      else
-#endif
-          if (ctx_str)
-        PrevLocTrans = IRB.CreateZExt(IRB.CreateXor(PrevLoc, PrevCtx), Int32Ty);
-      else
-        PrevLocTrans = IRB.CreateZExt(PrevLoc, IRB.getInt32Ty());
+      Value *PrevLocCasted = IRB.CreateZExt(PrevLoc, IRB.getInt32Ty());
 
       /* Load SHM pointer */
 
       LoadInst *MapPtr = IRB.CreateLoad(AFLMapPtr);
       MapPtr->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
-
-      Value *MapPtrIdx;
-#ifdef AFL_HAVE_VECTOR_INTRINSICS
-      if (ngram_size)
-        MapPtrIdx = IRB.CreateGEP(
-            MapPtr,
-            IRB.CreateZExt(IRB.CreateXor(PrevLocTrans, CurLoc), Int32Ty));
-      else
-#endif
-        MapPtrIdx = IRB.CreateGEP(MapPtr, IRB.CreateXor(PrevLocTrans, CurLoc));
+      Value *MapPtrIdx =
+          IRB.CreateGEP(MapPtr, IRB.CreateXor(PrevLocCasted, CurLoc));
 
       /* Update bitmap */
 
@@ -673,31 +449,11 @@ bool AFLCoverage::runOnModule(Module &M) {
       IRB.CreateStore(Incr, MapPtrIdx)
           ->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
 
-      /* Update prev_loc history vector (by placing cur_loc at the head of the
-         vector and shuffle the other elements back by one) */
+      /* Set prev_loc to cur_loc >> 1 */
 
-      StoreInst *Store;
-
-#ifdef AFL_HAVE_VECTOR_INTRINSICS
-      if (ngram_size) {
-
-        Value *ShuffledPrevLoc = IRB.CreateShuffleVector(
-            PrevLoc, UndefValue::get(PrevLocTy), PrevLocShuffleMask);
-        Value *UpdatedPrevLoc = IRB.CreateInsertElement(
-            ShuffledPrevLoc, IRB.CreateLShr(CurLoc, (uint64_t)1), (uint64_t)0);
-
-        Store = IRB.CreateStore(UpdatedPrevLoc, AFLPrevLoc);
-        Store->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
-
-      } else
-
-#endif
-      {
-
-        Store = IRB.CreateStore(ConstantInt::get(Int32Ty, cur_loc >> 1),
-                                AFLPrevLoc);
-
-      }
+      StoreInst *Store =
+          IRB.CreateStore(ConstantInt::get(Int32Ty, cur_loc >> 1), AFLPrevLoc);
+      Store->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
 
       inst_blocks++;
 
@@ -714,11 +470,10 @@ bool AFLCoverage::runOnModule(Module &M) {
     else {
 
       char modeline[100];
-      snprintf(modeline, sizeof(modeline), "%s%s%s%s%s",
+      snprintf(modeline, sizeof(modeline), "%s%s%s%s",
                getenv("AFL_HARDEN") ? "hardened" : "non-hardened",
                getenv("AFL_USE_ASAN") ? ", ASAN" : "",
                getenv("AFL_USE_MSAN") ? ", MSAN" : "",
-               getenv("AFL_USE_CFISAN") ? ", CFISAN" : "",
                getenv("AFL_USE_UBSAN") ? ", UBSAN" : "");
       OKF("Instrumented %u locations (%s mode, ratio %u%%).", inst_blocks,
           modeline, inst_ratio);

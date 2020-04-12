@@ -24,7 +24,6 @@
  */
 
 #include "afl-fuzz.h"
-#include <limits.h>
 
 #ifdef HAVE_AFFINITY
 
@@ -77,16 +76,21 @@ void bind_to_free_cpu(afl_state_t *afl) {
 
   while ((de = readdir(d))) {
 
-    u8    fn[PATH_MAX];
+    u8 *  fn;
     FILE *f;
     u8    tmp[MAX_LINE];
     u8    has_vmsize = 0;
 
     if (!isdigit(de->d_name[0])) continue;
 
-    snprintf(fn, PATH_MAX, "/proc/%s/status", de->d_name);
+    fn = alloc_printf("/proc/%s/status", de->d_name);
 
-    if (!(f = fopen(fn, "r"))) { continue; }
+    if (!(f = fopen(fn, "r"))) {
+
+      ck_free(fn);
+      continue;
+
+    }
 
     while (fgets(tmp, MAX_LINE, f)) {
 
@@ -107,6 +111,7 @@ void bind_to_free_cpu(afl_state_t *afl) {
 
     }
 
+    ck_free(fn);
     fclose(f);
 
   }
@@ -176,7 +181,7 @@ void bind_to_free_cpu(afl_state_t *afl) {
   ck_free(procs);
 #else
 #warning \
-    "For this platform we do not have free CPU binding code yet. If possible, please supply a PR to https://github.com/AFLplusplus/AFLplusplus"
+    "For this platform we do not have free CPU binding code yet. If possible, please supply a PR to https://github.com/vanhauser-thc/AFLplusplus"
 #endif
 
   size_t cpu_start = 0;
@@ -271,9 +276,7 @@ void setup_post(afl_state_t *afl) {
 
   void *dh;
   u8 *  fn = afl->afl_env.afl_post_library;
-  u8    tbuf[6];
   u32   tlen = 6;
-  strncpy(tbuf, "hello", tlen);
 
   if (!fn) return;
 
@@ -284,20 +287,10 @@ void setup_post(afl_state_t *afl) {
 
   afl->post_handler = dlsym(dh, "afl_postprocess");
   if (!afl->post_handler) FATAL("Symbol 'afl_postprocess' not found.");
-  afl->post_init = dlsym(dh, "afl_postprocess_init");
-  if (!afl->post_init) FATAL("Symbol 'afl_postprocess_init' not found.");
-  afl->post_deinit = dlsym(dh, "afl_postprocess_deinit");
-  if (!afl->post_deinit) FATAL("Symbol 'afl_postprocess_deinit' not found.");
 
   /* Do a quick test. It's better to segfault now than later =) */
 
-  u8 *post_buf = NULL;
-  afl->post_data = afl->post_init(afl);
-  if (!afl->post_data) FATAL("Could not initialize post handler.");
-
-  size_t post_len = afl->post_handler(afl->post_data, tbuf, tlen, &post_buf);
-  if (!post_len || !post_buf)
-    SAYF("Empty return in test post handler for buf=\"hello\\0\".");
+  afl->post_handler("hello", &tlen);
 
   OKF("Postprocessor installed successfully.");
 
@@ -311,7 +304,7 @@ static void shuffle_ptrs(afl_state_t *afl, void **ptrs, u32 cnt) {
 
   for (i = 0; i < cnt - 2; ++i) {
 
-    u32   j = i + rand_below(afl, cnt - i);
+    u32   j = i + UR(afl, cnt - i);
     void *s = ptrs[i];
     ptrs[i] = ptrs[j];
     ptrs[j] = s;
@@ -329,8 +322,6 @@ void read_testcases(afl_state_t *afl) {
   s32             nl_cnt;
   u32             i;
   u8 *            fn1;
-
-  u8 val_buf[2][STRINGIFY_VAL_SIZE_MAX];
 
   /* Auto-detect non-in-place resumption attempts. */
 
@@ -376,10 +367,9 @@ void read_testcases(afl_state_t *afl) {
 
     struct stat st;
 
-    u8 dfn[PATH_MAX];
-    snprintf(dfn, PATH_MAX, "%s/.state/deterministic_done/%s", afl->in_dir,
-             nl[i]->d_name);
     u8 *fn2 = alloc_printf("%s/%s", afl->in_dir, nl[i]->d_name);
+    u8 *dfn = alloc_printf("%s/.state/deterministic_done/%s", afl->in_dir,
+                           nl[i]->d_name);
 
     u8 passed_det = 0;
 
@@ -393,14 +383,14 @@ void read_testcases(afl_state_t *afl) {
     if (!S_ISREG(st.st_mode) || !st.st_size || strstr(fn2, "/README.txt")) {
 
       ck_free(fn2);
+      ck_free(dfn);
       continue;
 
     }
 
     if (st.st_size > MAX_FILE)
-      FATAL("Test case '%s' is too big (%s, limit is %s)", fn2,
-            stringify_mem_size(val_buf[0], sizeof(val_buf[0]), st.st_size),
-            stringify_mem_size(val_buf[1], sizeof(val_buf[1]), MAX_FILE));
+      FATAL("Test case '%s' is too big (%s, limit is %s)", fn2, DMS(st.st_size),
+            DMS(MAX_FILE));
 
     /* Check for metadata that indicates that deterministic fuzzing
        is complete for this entry. We don't want to repeat deterministic
@@ -408,6 +398,7 @@ void read_testcases(afl_state_t *afl) {
        and probably very time-consuming. */
 
     if (!access(dfn, F_OK)) passed_det = 1;
+    ck_free(dfn);
 
     add_to_queue(afl, fn2, st.st_size, passed_det);
 
@@ -562,8 +553,6 @@ void perform_dry_run(afl_state_t *afl) {
 
         if (afl->fsrv.mem_limit) {
 
-          u8 val_buf[STRINGIFY_VAL_SIZE_MAX];
-
           SAYF("\n" cLRD "[-] " cRST
                "Oops, the program crashed with one of the test cases provided. "
                "There are\n"
@@ -604,9 +593,8 @@ void perform_dry_run(afl_state_t *afl) {
                "other options\n"
                "      fail, poke <afl-users@googlegroups.com> for "
                "troubleshooting tips.\n",
-               stringify_mem_size(val_buf, sizeof(val_buf),
-                                  afl->fsrv.mem_limit << 20),
-               afl->fsrv.mem_limit - 1, doc_path);
+               DMS(afl->fsrv.mem_limit << 20), afl->fsrv.mem_limit - 1,
+               doc_path);
 
         } else {
 
@@ -809,7 +797,7 @@ void pivot_inputs(afl_state_t *afl) {
 
 u32 find_start_position(afl_state_t *afl) {
 
-  u8 tmp[4096] = {0};                    /* Ought to be enough for anybody. */
+  static u8 tmp[4096];                   /* Ought to be enough for anybody. */
 
   u8 *fn, *off;
   s32 fd, i;
@@ -846,7 +834,7 @@ u32 find_start_position(afl_state_t *afl) {
 
 void find_timeout(afl_state_t *afl) {
 
-  u8 tmp[4096] = {0};                    /* Ought to be enough for anybody. */
+  static u8 tmp[4096];                   /* Ought to be enough for anybody. */
 
   u8 *fn, *off;
   s32 fd, i;
@@ -914,7 +902,7 @@ static u8 delete_files(u8 *path, u8 *prefix) {
 
 double get_runnable_processes(void) {
 
-  double res = 0;
+  static double res;
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || \
     defined(__NetBSD__) || defined(__DragonFly__)
@@ -1061,7 +1049,7 @@ static void handle_existing_out_dir(afl_state_t *afl) {
 
     /* Let's see how much work is at stake. */
 
-    if (!afl->in_place_resume && last_update > start_time2 &&
+    if (!afl->in_place_resume &&
         last_update - start_time2 > OUTPUT_GRACE * 60) {
 
       SAYF("\n" cLRD "[-] " cRST
@@ -1799,7 +1787,7 @@ void fix_up_sync(afl_state_t *afl) {
 
 static void handle_resize(int sig) {
 
-  LIST_FOREACH(&afl_states, afl_state_t, { el->clear_screen = 1; });
+  LIST_FOREACH(&afl_states, afl_state_t, { el->clear_screen; });
 
 }
 
@@ -2020,7 +2008,7 @@ void check_binary(afl_state_t *afl, u8 *fname) {
 
   }
 
-  if (memmem(f_data, f_len, "__asan_init", 11) ||
+  if (memmem(f_data, f_len, "libasan.so", 10) ||
       memmem(f_data, f_len, "__msan_init", 11))
     afl->fsrv.uses_asan = 1;
 
@@ -2136,6 +2124,11 @@ void setup_signal_handlers(void) {
   sigaction(SIGHUP, &sa, NULL);
   sigaction(SIGINT, &sa, NULL);
   sigaction(SIGTERM, &sa, NULL);
+
+  /* Exec timeout notifications. */
+
+  sa.sa_handler = handle_timeout;
+  sigaction(SIGALRM, &sa, NULL);
 
   /* Window resize */
 

@@ -17,13 +17,6 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
 import random
 
 
-COMMANDS = [
-    b"GET",
-    b"PUT",
-    b"DEL",
-]
-
-
 def init(seed):
     '''
     Called once when AFLFuzz starts up. Used to seed our RNG.
@@ -32,10 +25,6 @@ def init(seed):
     @param seed: A 32-bit random value
     '''
     random.seed(seed)
-
-
-def deinit():
-    pass
 
 
 def fuzz(buf, add_buf, max_size):
@@ -55,9 +44,8 @@ def fuzz(buf, add_buf, max_size):
     @rtype: bytearray
     @return: A new bytearray containing the mutated data
     '''
-    ret = bytearray(100)
-
-    ret[:3] = random.choice(COMMANDS)
+    ret = bytearray(buf)
+    # Do something interesting with ret
 
     return ret
 
@@ -176,10 +164,11 @@ def fuzz(buf, add_buf, max_size):
 #     '''
 #     Called after adding a new test case to the queue
 #
-#     @type filename_new_queue: str
+#     @type filename_new_queue: str 
 #     @param filename_new_queue: File name of the new queue entry
 #
 #     @type filename_orig_queue: str
 #     @param filename_orig_queue: File name of the original queue entry
 #     '''
 #     pass
+

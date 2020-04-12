@@ -3,18 +3,11 @@
   Written by Khaled Yakdan <yakdan@code-intelligence.de>
              Andrea Fioraldi <andreafioraldi@gmail.com>
              Shengtuo Hu <h1994st@gmail.com>
-             Dominik Maier <mail@dmnk.co>
 */
-
-// You need to use -I /path/to/AFLplusplus/include
-#include "custom_mutator_helpers.h"
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
-
-#define DATA_SIZE (100)
 
 static const char *commands[] = {
 
@@ -24,50 +17,11 @@ static const char *commands[] = {
 
 };
 
-typedef struct my_mutator {
+static size_t data_size = 100;
 
-  afl_t *afl;
+void afl_custom_init(unsigned int seed) {
 
-  // any additional data here!
-  size_t trim_size_current;
-  int    trimmming_steps;
-  int    cur_step;
-
-  // Reused buffers:
-  BUF_VAR(u8, fuzz);
-  BUF_VAR(u8, data);
-  BUF_VAR(u8, havoc);
-  BUF_VAR(u8, trim);
-  BUF_VAR(u8, pre_save);
-
-} my_mutator_t;
-
-/**
- * Initialize this custom mutator
- *
- * @param[in] afl a pointer to the internal state object. Can be ignored for
- * now.
- * @param[in] seed A seed for this mutator - the same seed should always mutate
- * in the same way.
- * @return Pointer to the data object this custom mutator instance should use.
- *         There may be multiple instances of this mutator in one afl-fuzz run!
- *         Return NULL on error.
- */
-my_mutator_t *afl_custom_init(afl_t *afl, unsigned int seed) {
-
-  srand(seed);  // needed also by surgical_havoc_mutate()
-
-  my_mutator_t *data = calloc(1, sizeof(my_mutator_t));
-  if (!data) {
-
-    perror("afl_custom_init alloc");
-    return NULL;
-
-  }
-
-  data->afl = afl;
-
-  return data;
+  srand(seed);
 
 }
 
@@ -76,49 +30,36 @@ my_mutator_t *afl_custom_init(afl_t *afl, unsigned int seed) {
  *
  * (Optional for now. Required in the future)
  *
- * @param[in] data pointer returned in afl_custom_init for this fuzz case
  * @param[in] buf Pointer to input data to be mutated
  * @param[in] buf_size Size of input data
- * @param[out] out_buf the buffer we will work on. we can reuse *buf. NULL on
- * error.
  * @param[in] add_buf Buffer containing the additional test case
  * @param[in] add_buf_size Size of the additional test case
  * @param[in] max_size Maximum size of the mutated output. The mutation must not
  *     produce data larger than max_size.
  * @return Size of the mutated output.
  */
-size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
-                       u8 **out_buf, uint8_t *add_buf,
+size_t afl_custom_fuzz(uint8_t **buf, size_t buf_size, uint8_t *add_buf,
                        size_t add_buf_size,  // add_buf can be NULL
                        size_t max_size) {
 
   // Make sure that the packet size does not exceed the maximum size expected by
   // the fuzzer
-  size_t mutated_size = DATA_SIZE <= max_size ? DATA_SIZE : max_size;
+  size_t mutated_size = data_size <= max_size ? data_size : max_size;
 
-  // maybe_grow is optimized to be quick for reused buffers.
-  u8 *mutated_out = maybe_grow(BUF_PARAMS(data, fuzz), mutated_size);
-  if (!mutated_out) {
+  if (mutated_size > buf_size) *buf = realloc(*buf, mutated_size);
 
-    *out_buf = NULL;
-    perror("custom mutator allocation (maybe_grow)");
-    return 0;            /* afl-fuzz will very likely error out after this. */
-
-  }
+  uint8_t *mutated_out = *buf;
 
   // Randomly select a command string to add as a header to the packet
   memcpy(mutated_out, commands[rand() % 3], 3);
 
   // Mutate the payload of the packet
-  int i;
-  for (i = 0; i < 8; ++i) {
+  for (int i = 3; i < mutated_size; i++) {
 
-    // Randomly perform one of the (no len modification) havoc mutations
-    surgical_havoc_mutate(mutated_out, 3, mutated_size);
+    mutated_out[i] = (mutated_out[i] + rand() % 10) & 0xff;
 
   }
 
-  *out_buf = mutated_out;
   return mutated_size;
 
 }
@@ -130,39 +71,31 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
  * (Optional) If this functionality is not needed, simply don't define this
  * function.
  *
- * @param[in] data pointer returned in afl_custom_init for this fuzz case
  * @param[in] buf Buffer containing the test case to be executed
  * @param[in] buf_size Size of the test case
  * @param[out] out_buf Pointer to the buffer containing the test case after
- *     processing. External library should allocate memory for out_buf.
- *     The buf pointer may be reused (up to the given buf_size);
- * @return Size of the output buffer after processing or the needed amount.
- *     A return of 0 indicates an error.
+ *     processing. External library should allocate memory for out_buf. AFL++
+ *     will release the memory after saving the test case.
+ * @return Size of the output buffer after processing
  */
-size_t afl_custom_pre_save(my_mutator_t *data, uint8_t *buf, size_t buf_size,
-                           uint8_t **out_buf) {
+size_t afl_custom_pre_save(uint8_t *buf, size_t buf_size, uint8_t **out_buf) {
 
-  uint8_t *pre_save_buf = maybe_grow(BUF_PARAMS(data, pre_save), buf_size + 5);
-  if (!pre_save_buf) {
+  size_t out_buf_size;
 
-    perror("custom mutator realloc failed.");
-    *out_buf = NULL;
-    return 0;
+  out_buf_size = buf_size;
 
-  }
+  // External mutator should allocate memory for `out_buf`
+  *out_buf = malloc(out_buf_size);
+  memcpy(*out_buf, buf, out_buf_size);
 
-  memcpy(pre_save_buf + 5, buf, buf_size);
-  pre_save_buf[0] = 'A';
-  pre_save_buf[1] = 'F';
-  pre_save_buf[2] = 'L';
-  pre_save_buf[3] = '+';
-  pre_save_buf[4] = '+';
-
-  *out_buf = pre_save_buf;
-
-  return buf_size + 5;
+  return out_buf_size;
 
 }
+
+static uint8_t *trim_buf;
+static size_t   trim_buf_size;
+static int      trimmming_steps;
+static int      cur_step;
 
 /**
  * This method is called at the start of each trimming operation and receives
@@ -180,39 +113,27 @@ size_t afl_custom_pre_save(my_mutator_t *data, uint8_t *buf, size_t buf_size,
  *
  * (Optional)
  *
- * @param data pointer returned in afl_custom_init for this fuzz case
  * @param buf Buffer containing the test case
  * @param buf_size Size of the test case
- * @return The amount of possible iteration steps to trim the input.
- *        negative on error.
+ * @return The amount of possible iteration steps to trim the input
  */
-int32_t afl_custom_init_trim(my_mutator_t *data, uint8_t *buf,
-                             size_t buf_size) {
+int afl_custom_init_trim(uint8_t *buf, size_t buf_size) {
 
   // We simply trim once
-  data->trimmming_steps = 1;
+  trimmming_steps = 1;
 
-  data->cur_step = 0;
+  cur_step = 0;
+  trim_buf = buf;
+  trim_buf_size = buf_size;
 
-  if (!maybe_grow(BUF_PARAMS(data, trim), buf_size)) {
-
-    perror("init_trim grow");
-    return -1;
-
-  }
-
-  memcpy(data->trim_buf, buf, buf_size);
-
-  data->trim_size_current = buf_size;
-
-  return data->trimmming_steps;
+  return trimmming_steps;
 
 }
 
 /**
  * This method is called for each trimming operation. It doesn't have any
  * arguments because we already have the initial buffer from init_trim and we
- * can memorize the current state in *data. This can also save
+ * can memorize the current state in global variables. This can also save
  * reparsing steps for each iteration. It should return the trimmed input
  * buffer, where the returned data must not exceed the initial input data in
  * length. Returning anything that is larger than the original data (passed
@@ -220,20 +141,19 @@ int32_t afl_custom_init_trim(my_mutator_t *data, uint8_t *buf,
  *
  * (Optional)
  *
- * @param[in] data pointer returned in afl_custom_init for this fuzz case
  * @param[out] out_buf Pointer to the buffer containing the trimmed test case.
- *     External library should allocate memory for out_buf.
- *     AFL++ will not release the memory after saving the test case.
- *     Keep a ref in *data.
- *     *out_buf = NULL is treated as error.
- * @return Pointer to the size of the trimmed test case
+ *     External library should allocate memory for out_buf. AFL++ will release
+ *     the memory after saving the test case.
+ * @param[out] out_buf_size Pointer to the size of the trimmed test case
  */
-size_t afl_custom_trim(my_mutator_t *data, uint8_t **out_buf) {
+void afl_custom_trim(uint8_t **out_buf, size_t *out_buf_size) {
 
-  *out_buf = data->trim_buf;
+  *out_buf_size = trim_buf_size - 1;
 
+  // External mutator should allocate memory for `out_buf`
+  *out_buf = malloc(*out_buf_size);
   // Remove the last byte of the trimming input
-  return data->trim_size_current - 1;
+  memcpy(*out_buf, trim_buf, *out_buf_size);
 
 }
 
@@ -244,21 +164,20 @@ size_t afl_custom_trim(my_mutator_t *data, uint8_t **out_buf) {
  *
  * (Optional)
  *
- * @param[in] data pointer returned in afl_custom_init for this fuzz case
  * @param success Indicates if the last trim operation was successful.
  * @return The next trim iteration index (from 0 to the maximum amount of
- *     steps returned in init_trim). negative ret on failure.
+ *     steps returned in init_trim)
  */
-int32_t afl_custom_post_trim(my_mutator_t *data, int success) {
+int afl_custom_post_trim(int success) {
 
   if (success) {
 
-    ++data->cur_step;
-    return data->cur_step;
+    ++cur_step;
+    return cur_step;
 
   }
 
-  return data->trimmming_steps;
+  return trimmming_steps;
 
 }
 
@@ -268,41 +187,26 @@ int32_t afl_custom_post_trim(my_mutator_t *data, int success) {
  *
  * (Optional)
  *
- * @param[in] data pointer returned in afl_custom_init for this fuzz case
- * @param[in] buf Pointer to the input data to be mutated and the mutated
+ * @param[inout] buf Pointer to the input data to be mutated and the mutated
  *     output
  * @param[in] buf_size Size of input data
- * @param[out] out_buf The output buffer. buf can be reused, if the content
- * fits. *out_buf = NULL is treated as error.
  * @param[in] max_size Maximum size of the mutated output. The mutation must
  *     not produce data larger than max_size.
  * @return Size of the mutated output.
  */
-size_t afl_custom_havoc_mutation(my_mutator_t *data, u8 *buf, size_t buf_size,
-                                 u8 **out_buf, size_t max_size) {
+size_t afl_custom_havoc_mutation(uint8_t **buf, size_t buf_size,
+                                 size_t max_size) {
 
   if (buf_size == 0) {
 
-    *out_buf = maybe_grow(BUF_PARAMS(data, havoc), 1);
-    if (!*out_buf) {
-
-      perror("custom havoc: maybe_grow");
-      return 0;
-
-    }
-
-    **out_buf = rand() % 256;
+    *buf = realloc(*buf, 1);
+    **buf = rand() % 256;
     buf_size = 1;
-
-  } else {
-
-    // We reuse buf here. It's legal and faster.
-    *out_buf = buf;
 
   }
 
   size_t victim = rand() % buf_size;
-  (*out_buf)[victim] += rand() % 10;
+  (*buf)[victim] += rand() % 10;
 
   return buf_size;
 
@@ -314,10 +218,9 @@ size_t afl_custom_havoc_mutation(my_mutator_t *data, u8 *buf, size_t buf_size,
  *
  * (Optional)
  *
- * @param[in] data pointer returned in afl_custom_init for this fuzz case
  * @return The probability (0-100).
  */
-uint8_t afl_custom_havoc_mutation_probability(my_mutator_t *data) {
+uint8_t afl_custom_havoc_mutation_probability(void) {
 
   return 5;  // 5 %
 
@@ -328,12 +231,11 @@ uint8_t afl_custom_havoc_mutation_probability(my_mutator_t *data) {
  *
  * (Optional)
  *
- * @param[in] data pointer returned in afl_custom_init for this fuzz case
  * @param filename File name of the test case in the queue entry
  * @return Return True(1) if the fuzzer will fuzz the queue entry, and
  *     False(0) otherwise.
  */
-uint8_t afl_custom_queue_get(my_mutator_t *data, const uint8_t *filename) {
+uint8_t afl_custom_queue_get(const uint8_t *filename) {
 
   return 1;
 
@@ -345,31 +247,13 @@ uint8_t afl_custom_queue_get(my_mutator_t *data, const uint8_t *filename) {
  *
  * (Optional)
  *
- * @param data pointer returned in afl_custom_init for this fuzz case
  * @param filename_new_queue File name of the new queue entry
  * @param filename_orig_queue File name of the original queue entry
  */
-void afl_custom_queue_new_entry(my_mutator_t * data,
-                                const uint8_t *filename_new_queue,
+void afl_custom_queue_new_entry(const uint8_t *filename_new_queue,
                                 const uint8_t *filename_orig_queue) {
 
   /* Additional analysis on the original or new test case */
-
-}
-
-/**
- * Deinitialize everything
- *
- * @param data The data ptr from afl_custom_init
- */
-void afl_custom_deinit(my_mutator_t *data) {
-
-  free(data->pre_save_buf);
-  free(data->havoc_buf);
-  free(data->data_buf);
-  free(data->fuzz_buf);
-  free(data->trim_buf);
-  free(data);
 
 }
 

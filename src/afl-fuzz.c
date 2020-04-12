@@ -25,6 +25,8 @@
 
 #include "afl-fuzz.h"
 
+u8 be_quiet = 0;
+
 static u8 *get_libradamsa_path(u8 *own_loc) {
 
   u8 *tmp, *cp, *rsl, *own_copy;
@@ -94,8 +96,8 @@ static void usage(afl_state_t *afl, u8 *argv0, int more_help) {
       "Execution control settings:\n"
       "  -p schedule   - power schedules recompute a seed's performance "
       "score.\n"
-      "                  <explore(default), fast, coe, lin, quad, exploit, "
-      "mmopt, rare>\n"
+      "                  <explore (default), fast, coe, lin, quad, exploit, "
+      "mmopt>\n"
       "                  see docs/power_schedules.md\n"
       "  -f file       - location read by the fuzzed program (stdin)\n"
       "  -t msec       - timeout for each run (auto-scaled, 50-%d ms)\n"
@@ -165,7 +167,6 @@ static void usage(afl_state_t *afl, u8 *argv0, int more_help) {
       "AFL_FORCE_UI: force showing the status screen (for virtual consoles)\n"
       "AFL_NO_CPU_RED: avoid red color for showing very high cpu usage\n"
       "AFL_SKIP_CPUFREQ: do not warn about variable cpu clocking\n"
-      "AFL_NO_SNAPSHOT: do not use the snapshot feature (if the snapshot lkm is loaded)\n"
       "AFL_NO_FORKSRV: run target via execve instead of using the forkserver\n"
       "AFL_NO_ARITH: skip arithmetic mutations in deterministic stage\n"
       "AFL_SHUFFLE_QUEUE: reorder the input queue randomly on startup\n"
@@ -198,8 +199,6 @@ static void usage(afl_state_t *afl, u8 *argv0, int more_help) {
 #ifdef USE_PYTHON
   SAYF("Compiled with %s module support, see docs/custom_mutator.md\n",
        (char *)PYTHON_VERSION);
-#else
-  SAYF("Compiled without python module support\n");
 #endif
 
   SAYF("For additional help please consult %s/README.md\n\n", doc_path);
@@ -231,7 +230,8 @@ int main(int argc, char **argv_orig, char **envp) {
   u64    prev_queued = 0;
   u32    sync_interval_cnt = 0, seek_to, show_help = 0;
   u8 *   extras_dir = 0;
-  u8     mem_limit_given = 0, exit_1 = 0;
+  u8     mem_limit_given = 0;
+  u8     exit_1 = !!get_afl_env("AFL_BENCH_JUST_ONE");
   char **use_argv;
 
   struct timeval  tv;
@@ -246,12 +246,11 @@ int main(int argc, char **argv_orig, char **envp) {
   afl_fsrv_init(&afl->fsrv);
 
   read_afl_environment(afl, envp);
-  exit_1 = !!afl->afl_env.afl_bench_just_one;
 
   SAYF(cCYA "afl-fuzz" VERSION cRST
             " based on afl by Michal Zalewski and a big online community\n");
 
-  doc_path = access(DOC_PATH, F_OK) != 0 ? (u8 *)"docs" : (u8 *)DOC_PATH;
+  doc_path = access(DOC_PATH, F_OK) ? (u8 *)"docs" : doc_path;
 
   gettimeofday(&tv, &tz);
   afl->init_seed = tv.tv_sec ^ tv.tv_usec ^ getpid();
@@ -304,10 +303,6 @@ int main(int argc, char **argv_orig, char **envp) {
         } else if (!stricmp(optarg, "mopt") || !stricmp(optarg, "mmopt")) {
 
           afl->schedule = MMOPT;
-
-        } else if (!stricmp(optarg, "rare")) {
-
-          afl->schedule = RARE;
 
         } else if (!stricmp(optarg, "explore") || !stricmp(optarg, "default") ||
 
@@ -680,7 +675,7 @@ int main(int argc, char **argv_orig, char **envp) {
   OKF("afl++ is maintained by Marc \"van Hauser\" Heuse, Heiko \"hexcoder\" "
       "Eißfeldt, Andrea Fioraldi and Dominik Maier");
   OKF("afl++ is open source, get it at "
-      "https://github.com/AFLplusplus/AFLplusplus");
+      "https://github.com/vanhauser-thc/AFLplusplus");
   OKF("Power schedules from github.com/mboehme/aflfast");
   OKF("Python Mutator and llvm_mode whitelisting from github.com/choller/afl");
   OKF("afl-tmin fork server patch from github.com/nccgroup/TriforceAFL");
@@ -694,7 +689,6 @@ int main(int argc, char **argv_orig, char **envp) {
 
   if (afl->fixed_seed) OKF("Running with fixed seed: %u", (u32)afl->init_seed);
   srandom((u32)afl->init_seed);
-  srand((u32)afl->init_seed);  // in case it is a different implementation
 
   if (afl->use_radamsa) {
 
@@ -724,16 +718,6 @@ int main(int argc, char **argv_orig, char **envp) {
     radamsa_init_ptr();
 
   }
-
-#if defined(__SANITIZE_ADDRESS__)
-  if (afl->fsrv.mem_limit) {
-
-    WARNF("in the ASAN build we disable all memory limits");
-    afl->fsrv.mem_limit = 0;
-
-  }
-
-#endif
 
   setup_signal_handlers();
   check_asan_opts();
@@ -776,9 +760,8 @@ int main(int argc, char **argv_orig, char **envp) {
     case LIN: OKF("Using linear power schedule (LIN)"); break;
     case QUAD: OKF("Using quadratic power schedule (QUAD)"); break;
     case MMOPT: OKF("Using modified MOpt power schedule (MMOPT)"); break;
-    case RARE: OKF("Using rare edge focus power schedule (RARE)"); break;
     case EXPLORE:
-      OKF("Using exploration-based constant power schedule (EXPLORE, default)");
+      OKF("Using exploration-based constant power schedule (EXPLORE)");
       break;
     default: FATAL("Unknown power schedule"); break;
 
@@ -1063,9 +1046,9 @@ int main(int argc, char **argv_orig, char **envp) {
 
       }
 
-      // show_stats(afl);
+      show_stats(afl);
 
-      if (unlikely(afl->not_on_tty)) {
+      if (afl->not_on_tty) {
 
         ACTF("Entering queue cycle %llu.", afl->queue_cycle);
         fflush(stdout);
@@ -1136,7 +1119,7 @@ int main(int argc, char **argv_orig, char **envp) {
 
   }
 
-  // if (afl->queue_cur) show_stats(afl);
+  if (afl->queue_cur) show_stats(afl);
 
   /*
    * ATTENTION - the following 10 lines were copied from a PR to Google's afl
@@ -1161,12 +1144,12 @@ int main(int argc, char **argv_orig, char **envp) {
   }
 
   write_bitmap(afl);
+  write_stats_file(afl, 0, 0, 0);
   maybe_update_plot_file(afl, 0, 0);
   save_auto(afl);
 
 stop_fuzzing:
 
-  write_stats_file(afl, 0, 0, 0);
   afl->force_ui_update = 1;  // ensure the screen is reprinted
   show_stats(afl);           // print the screen one last time
 

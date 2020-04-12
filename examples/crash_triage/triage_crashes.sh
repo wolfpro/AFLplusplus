@@ -91,10 +91,10 @@ for crash in $DIR/crashes/id:*; do
   for a in $@; do
 
     if [ "$a" = "@@" ] ; then
-      use_args="$use_args $crash"
+      args="$use_args $crash"
       unset use_stdio
     else
-      use_args="$use_args $a"
+      args="$use_args $a"
     fi
 
   done

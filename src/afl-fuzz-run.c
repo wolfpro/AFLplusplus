@@ -28,12 +28,24 @@
 #include <signal.h>
 
 /* Execute target application, monitoring for timeouts. Return status
-   information. The called program will update afl->fsrv.trace_bits. */
+   information. The called program will update afl->fsrv.trace_bits[]. */
+
+void timeout_handle(union sigval timer_data) {
+
+  pid_t child_pid = timer_data.sival_int;
+  if (child_pid > 0) kill(child_pid, SIGKILL);
+
+}
 
 u8 run_target(afl_state_t *afl, u32 timeout) {
 
   s32 res;
-  u32 exec_ms;
+  int sret;
+
+  fd_set readfds;
+
+  static struct timeval it;
+  static u32            prev_timed_out = 0;
 
   int status = 0;
   u32 tb4;
@@ -51,7 +63,7 @@ u8 run_target(afl_state_t *afl, u32 timeout) {
   /* we have the fork server (or faux server) up and running, so simply
       tell it to have at it, and then read back PID. */
 
-  if ((res = write(afl->fsrv.fsrv_ctl_fd, &afl->fsrv.prev_timed_out, 4)) != 4) {
+  if ((res = write(afl->fsrv.fsrv_ctl_fd, &prev_timed_out, 4)) != 4) {
 
     if (afl->stop_soon) return 0;
     RPFATAL(res, "Unable to request new process from fork server (OOM?)");
@@ -67,20 +79,26 @@ u8 run_target(afl_state_t *afl, u32 timeout) {
 
   if (afl->fsrv.child_pid <= 0) FATAL("Fork server is misbehaving (OOM?)");
 
-  exec_ms = read_timed(afl->fsrv.fsrv_st_fd, &status, 4, timeout);
+  /* use select to monitor the forkserver for timeouts. */
 
-  if (exec_ms > timeout) {
+  FD_ZERO(&readfds);
+  FD_SET(afl->fsrv.fsrv_st_fd, &readfds);
+  it.tv_sec = ((timeout) / 1000);
+  it.tv_usec = ((timeout) % 1000) * 1000;
+
+  sret = select(afl->fsrv.fsrv_st_fd + 1, &readfds, NULL, NULL, &it);
+
+  if (sret == 0) {
 
     /* If there was no response from forkserver after timeout seconds,
     we kill the child. The forkserver should inform us afterwards */
 
     kill(afl->fsrv.child_pid, SIGKILL);
     afl->fsrv.child_timed_out = 1;
-    if (read(afl->fsrv.fsrv_st_fd, &status, 4) < 4) exec_ms = 0;
 
   }
 
-  if (!exec_ms) {
+  if ((res = read(afl->fsrv.fsrv_st_fd, &status, 4)) != 4) {
 
     if (afl->stop_soon) return 0;
     SAYF("\n" cLRD "[-] " cRST
@@ -126,7 +144,7 @@ u8 run_target(afl_state_t *afl, u32 timeout) {
   classify_counts((u32 *)afl->fsrv.trace_bits);
 #endif                                                     /* ^WORD_SIZE_64 */
 
-  afl->fsrv.prev_timed_out = afl->fsrv.child_timed_out;
+  prev_timed_out = afl->fsrv.child_timed_out;
 
   /* Report outcome to caller. */
 
@@ -167,16 +185,20 @@ void write_to_testcase(afl_state_t *afl, void *mem, u32 len) {
   s32 fd = afl->fsrv.out_fd;
 
 #ifdef _AFL_DOCUMENT_MUTATIONS
-  s32  doc_fd;
-  char fn[PATH_MAX];
-  snprintf(fn, PATH_MAX, ("%s/mutations/%09u:%s", afl->out_dir,
+  s32   doc_fd;
+  char *fn = alloc_printf("%s/mutations/%09u:%s", afl->out_dir,
                           afl->document_counter++, describe_op(afl, 0));
+  if (fn != NULL) {
 
-  if ((doc_fd = open(fn, O_WRONLY | O_CREAT | O_TRUNC, 0600)) >= 0) {
+    if ((doc_fd = open(fn, O_WRONLY | O_CREAT | O_TRUNC, 0600)) >= 0) {
 
-    if (write(doc_fd, mem, len) != len)
-      PFATAL("write to mutation file failed: %s", fn);
-    close(doc_fd);
+      if (write(doc_fd, mem, len) != len)
+        PFATAL("write to mutation file failed: %s", fn);
+      close(doc_fd);
+
+    }
+
+    ck_free(fn);
 
   }
 
@@ -201,22 +223,16 @@ void write_to_testcase(afl_state_t *afl, void *mem, u32 len) {
 
     lseek(fd, 0, SEEK_SET);
 
-  if (unlikely(afl->mutator && afl->mutator->afl_custom_pre_save)) {
+  if (afl->mutator && afl->mutator->afl_custom_pre_save) {
 
-    u8 *new_buf = NULL;
-
-    size_t new_size = afl->mutator->afl_custom_pre_save(afl->mutator->data, mem,
-                                                        len, &new_buf);
-
-    if (unlikely(!new_buf))
-      FATAL("Custom_pre_save failed (ret: %lu)", (long unsigned)new_size);
-
-    /* everything as planned. use the new data. */
-    ck_write(fd, new_buf, new_size, afl->fsrv.out_file);
+    u8 *   new_data;
+    size_t new_size =
+        afl->mutator->afl_custom_pre_save(afl, mem, len, &new_data);
+    ck_write(fd, new_data, new_size, afl->fsrv.out_file);
+    ck_free(new_data);
 
   } else {
 
-    /* boring uncustom. */
     ck_write(fd, mem, len, afl->fsrv.out_file);
 
   }
@@ -283,6 +299,8 @@ static void write_with_gap(afl_state_t *afl, void *mem, u32 len, u32 skip_at,
 u8 calibrate_case(afl_state_t *afl, struct queue_entry *q, u8 *use_mem,
                   u32 handicap, u8 from_queue) {
 
+  static u8 first_trace[MAP_SIZE];
+
   u8 fault = 0, new_bits = 0, var_detected = 0,
      first_run = (q->exec_cksum == 0);
 
@@ -313,7 +331,7 @@ u8 calibrate_case(afl_state_t *afl, struct queue_entry *q, u8 *use_mem,
       afl->shm.cmplog_mode)
     init_cmplog_forkserver(afl);
 
-  if (q->exec_cksum) memcpy(afl->first_trace, afl->fsrv.trace_bits, MAP_SIZE);
+  if (q->exec_cksum) memcpy(first_trace, afl->fsrv.trace_bits, MAP_SIZE);
 
   start_us = get_cur_time_us();
 
@@ -354,19 +372,21 @@ u8 calibrate_case(afl_state_t *afl, struct queue_entry *q, u8 *use_mem,
 
         for (i = 0; i < MAP_SIZE; ++i) {
 
-          if (unlikely(!afl->var_bytes[i]) &&
-              unlikely(afl->first_trace[i] != afl->fsrv.trace_bits[i]))
+          if (!afl->var_bytes[i] && first_trace[i] != afl->fsrv.trace_bits[i]) {
+
             afl->var_bytes[i] = 1;
+            afl->stage_max = CAL_CYCLES_LONG;
+
+          }
 
         }
 
         var_detected = 1;
-        afl->stage_max = CAL_CYCLES_LONG;
 
       } else {
 
         q->exec_cksum = cksum;
-        memcpy(afl->first_trace, afl->fsrv.trace_bits, MAP_SIZE);
+        memcpy(first_trace, afl->fsrv.trace_bits, MAP_SIZE);
 
       }
 
@@ -451,6 +471,8 @@ void sync_fuzzers(afl_state_t *afl) {
 
   while ((sd_ent = readdir(sd))) {
 
+    static u8 stage_tmp[128];
+
     DIR *          qd;
     struct dirent *qd_ent;
     u8 *           qd_path, *qd_synced_path;
@@ -489,14 +511,13 @@ void sync_fuzzers(afl_state_t *afl) {
 
     /* Show stats */
 
-    snprintf(afl->stage_name_buf, STAGE_BUF_SIZE, "sync %u", ++sync_cnt);
-
-    afl->stage_name = afl->stage_name_buf;
+    sprintf(stage_tmp, "sync %u", ++sync_cnt);
+    afl->stage_name = stage_tmp;
     afl->stage_cur = 0;
     afl->stage_max = 0;
 
-    /* For every file queued by this fuzzer, parse ID and see if we have
-       looked at it before; exec a test case if not. */
+    /* For every file queued by this fuzzer, parse ID and see if we have looked
+       at it before; exec a test case if not. */
 
     while ((qd_ent = readdir(qd))) {
 
@@ -587,12 +608,13 @@ u8 trim_case(afl_state_t *afl, struct queue_entry *q, u8 *in_buf) {
   if (afl->mutator && afl->mutator->afl_custom_trim)
     return trim_case_custom(afl, q, in_buf);
 
+  static u8 tmp[64];
+  static u8 clean_trace[MAP_SIZE];
+
   u8  needs_write = 0, fault = 0;
   u32 trim_exec = 0;
   u32 remove_len;
   u32 len_p2;
-
-  u8 val_bufs[2][STRINGIFY_VAL_SIZE_MAX];
 
   /* Although the trimmer will be less useful when variable behavior is
      detected, it will still work to some extent, so we don't check for
@@ -600,12 +622,12 @@ u8 trim_case(afl_state_t *afl, struct queue_entry *q, u8 *in_buf) {
 
   if (q->len < 5) return 0;
 
-  afl->stage_name = afl->stage_name_buf;
+  afl->stage_name = tmp;
   afl->bytes_trim_in += q->len;
 
   /* Select initial chunk len, starting with large steps. */
 
-  len_p2 = next_pow2(q->len);
+  len_p2 = next_p2(q->len);
 
   remove_len = MAX(len_p2 / TRIM_START_STEPS, TRIM_MIN_BYTES);
 
@@ -616,9 +638,7 @@ u8 trim_case(afl_state_t *afl, struct queue_entry *q, u8 *in_buf) {
 
     u32 remove_pos = remove_len;
 
-    sprintf(afl->stage_name_buf, "trim %s/%s",
-            u_stringify_int(val_bufs[0], remove_len),
-            u_stringify_int(val_bufs[1], remove_len));
+    sprintf(tmp, "trim %s/%s", DI(remove_len), DI(remove_len));
 
     afl->stage_cur = 0;
     afl->stage_max = q->len / remove_len;
@@ -635,8 +655,7 @@ u8 trim_case(afl_state_t *afl, struct queue_entry *q, u8 *in_buf) {
 
       if (afl->stop_soon || fault == FAULT_ERROR) goto abort_trimming;
 
-      /* Note that we don't keep track of crashes or hangs here; maybe TODO?
-       */
+      /* Note that we don't keep track of crashes or hangs here; maybe TODO? */
 
       cksum = hash32(afl->fsrv.trace_bits, MAP_SIZE, HASH_CONST);
 
@@ -650,7 +669,7 @@ u8 trim_case(afl_state_t *afl, struct queue_entry *q, u8 *in_buf) {
         u32 move_tail = q->len - remove_pos - trim_avail;
 
         q->len -= trim_avail;
-        len_p2 = next_pow2(q->len);
+        len_p2 = next_p2(q->len);
 
         memmove(in_buf + remove_pos, in_buf + remove_pos + trim_avail,
                 move_tail);
@@ -661,7 +680,7 @@ u8 trim_case(afl_state_t *afl, struct queue_entry *q, u8 *in_buf) {
         if (!needs_write) {
 
           needs_write = 1;
-          memcpy(afl->clean_trace, afl->fsrv.trace_bits, MAP_SIZE);
+          memcpy(clean_trace, afl->fsrv.trace_bits, MAP_SIZE);
 
         }
 
@@ -703,7 +722,7 @@ u8 trim_case(afl_state_t *afl, struct queue_entry *q, u8 *in_buf) {
     ck_write(fd, in_buf, q->len, q->fname);
     close(fd);
 
-    memcpy(afl->fsrv.trace_bits, afl->clean_trace, MAP_SIZE);
+    memcpy(afl->fsrv.trace_bits, clean_trace, MAP_SIZE);
     update_bitmap_score(afl, q);
 
   }
@@ -725,13 +744,8 @@ u8 common_fuzz_stuff(afl_state_t *afl, u8 *out_buf, u32 len) {
 
   if (afl->post_handler) {
 
-    u8 *post_buf = NULL;
-
-    size_t post_len =
-        afl->post_handler(afl->post_data, out_buf, len, &post_buf);
-    if (!post_buf || !post_len) return 0;
-    out_buf = post_buf;
-    len = post_len;
+    out_buf = afl->post_handler(out_buf, &len);
+    if (!out_buf || !len) return 0;
 
   }
 

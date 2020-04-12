@@ -2,16 +2,8 @@
 
 ## Roadmap 2.63
 
- - complete custom_mutator API changes and documentation
- - fix stability calculation bug
+ - get "no global vars" working
 
-## Roadmap 2.64
-
- - context sensitive branch coverage in llvm_mode
- - random crc32 HASH_CONST per run? because with 65536 paths we have collisions
- - namespace for targets? e.g. network
- - libradamsa as a custom module?
- - laf-intel build auto-dictionary?
 
 ## Further down the road
 
@@ -20,11 +12,6 @@ afl-fuzz:
    (@andrea: be careful, often people run all slaves)
  - ascii_only mode for mutation output
  - setting min_len/max_len/start_offset/end_offset limits for mutation output
-
-llvm_mode:
- - added context sensitive branch coverage
- - add CT cov and ngram cov to LTO and InsTrim
- - better whitelist solution for LTO
 
 gcc_plugin:
  - laf-intel

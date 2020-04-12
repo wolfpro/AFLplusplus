@@ -34,8 +34,8 @@
 #include "debug.h"
 #include "afl-prealloc.h"
 
-/* How many elements to allocate before malloc is needed */
-#define LIST_PREALLOC_SIZE (64)
+#define LIST_PREALLOC_SIZE \
+  (64)             /* How many elements to allocate before malloc is needed */
 
 typedef struct list_element {
 
@@ -56,18 +56,17 @@ typedef struct list {
 
 static inline element_t *get_head(list_t *list) {
 
-  /* The first element is the head */
-  return list->element_prealloc_buf;
+  return &list->element_prealloc_buf[0];
 
 }
 
-static inline void list_free_el(list_t *list, element_t *el) {
+static void list_free_el(list_t *list, element_t *el) {
 
   PRE_FREE(el, list->element_prealloc_count);
 
 }
 
-static inline void list_append(list_t *list, void *el) {
+static void list_append(list_t *list, void *el) {
 
   element_t *head = get_head(list);
   if (!head->next) {
@@ -98,23 +97,23 @@ static inline void list_append(list_t *list, void *el) {
    A return from this block will return from calling func.
 */
 
-#define LIST_FOREACH(list, type, block)                            \
-  do {                                                             \
-                                                                   \
-    list_t *   li = (list);                                        \
-    element_t *head = get_head((li));                              \
-    element_t *el_box = (head)->next;                              \
-    if (!el_box) FATAL("foreach over uninitialized list");         \
-    while (el_box != head) {                                       \
-                                                                   \
-      __attribute__((unused)) type *el = (type *)((el_box)->data); \
-      /* get next so el_box can be unlinked */                     \
-      element_t *next = el_box->next;                              \
-      {block};                                                     \
-      el_box = next;                                               \
-                                                                   \
-    }                                                              \
-                                                                   \
+#define LIST_FOREACH(list, type, block)                    \
+  do {                                                     \
+                                                           \
+    list_t *   li = (list);                                \
+    element_t *head = get_head((li));                      \
+    element_t *el_box = (head)->next;                      \
+    if (!el_box) FATAL("foreach over uninitialized list"); \
+    while (el_box != head) {                               \
+                                                           \
+      type *el = (type *)((el_box)->data);                 \
+      /* get next so el_box can be unlinked */             \
+      element_t *next = el_box->next;                      \
+      {block};                                             \
+      el_box = next;                                       \
+                                                           \
+    }                                                      \
+                                                           \
   } while (0);
 
 /* In foreach: remove the current el from the list */
@@ -144,7 +143,7 @@ static inline void list_append(list_t *list, void *el) {
 
 /* remove an item from the list */
 
-static inline void list_remove(list_t *list, void *remove_me) {
+static void list_remove(list_t *list, void *remove_me) {
 
   LIST_FOREACH(list, void, {
 
@@ -166,7 +165,7 @@ static inline void list_remove(list_t *list, void *remove_me) {
 
 /* Returns true if el is in list */
 
-static inline bool list_contains(list_t *list, void *contains_me) {
+static bool list_contains(list_t *list, void *contains_me) {
 
   LIST_FOREACH(list, void, {
 

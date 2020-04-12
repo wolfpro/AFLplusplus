@@ -49,7 +49,92 @@
 
 /* Describe integer as memory size. */
 
+extern u8 *doc_path;
+
+u8 *forkserver_DMS(u64 val) {
+
+  static u8 tmp[12][16];
+  static u8 cur;
+
+#define CHK_FORMAT(_divisor, _limit_mult, _fmt, _cast)    \
+  do {                                                    \
+                                                          \
+    if (val < (_divisor) * (_limit_mult)) {               \
+                                                          \
+      sprintf(tmp[cur], _fmt, ((_cast)val) / (_divisor)); \
+      return tmp[cur];                                    \
+                                                          \
+    }                                                     \
+                                                          \
+  } while (0)
+
+  cur = (cur + 1) % 12;
+
+  /* 0-9999 */
+  CHK_FORMAT(1, 10000, "%llu B", u64);
+
+  /* 10.0k - 99.9k */
+  CHK_FORMAT(1024, 99.95, "%0.01f kB", double);
+
+  /* 100k - 999k */
+  CHK_FORMAT(1024, 1000, "%llu kB", u64);
+
+  /* 1.00M - 9.99M */
+  CHK_FORMAT(1024 * 1024, 9.995, "%0.02f MB", double);
+
+  /* 10.0M - 99.9M */
+  CHK_FORMAT(1024 * 1024, 99.95, "%0.01f MB", double);
+
+  /* 100M - 999M */
+  CHK_FORMAT(1024 * 1024, 1000, "%llu MB", u64);
+
+  /* 1.00G - 9.99G */
+  CHK_FORMAT(1024LL * 1024 * 1024, 9.995, "%0.02f GB", double);
+
+  /* 10.0G - 99.9G */
+  CHK_FORMAT(1024LL * 1024 * 1024, 99.95, "%0.01f GB", double);
+
+  /* 100G - 999G */
+  CHK_FORMAT(1024LL * 1024 * 1024, 1000, "%llu GB", u64);
+
+  /* 1.00T - 9.99G */
+  CHK_FORMAT(1024LL * 1024 * 1024 * 1024, 9.995, "%0.02f TB", double);
+
+  /* 10.0T - 99.9T */
+  CHK_FORMAT(1024LL * 1024 * 1024 * 1024, 99.95, "%0.01f TB", double);
+
+#undef CHK_FORMAT
+
+  /* 100T+ */
+  strcpy(tmp[cur], "infty");
+  return tmp[cur];
+
+}
+
 list_t fsrv_list = {.element_prealloc_count = 0};
+
+/* the timeout handler */
+
+void handle_timeout(int sig) {
+
+  LIST_FOREACH(&fsrv_list, afl_forkserver_t, {
+
+    // TODO: We need a proper timer to handle multiple timeouts
+    if (el->child_pid > 0) {
+
+      el->child_timed_out = 1;
+      kill(el->child_pid, SIGKILL);
+
+    } else if (el->child_pid == -1 && el->fsrv_pid > 0) {
+
+      el->child_timed_out = 1;
+      kill(el->fsrv_pid, SIGKILL);
+
+    }
+
+  });
+
+}
 
 /* Initializes the struct */
 
@@ -71,7 +156,6 @@ void afl_fsrv_init(afl_forkserver_t *fsrv) {
   fsrv->out_dir_fd = -1;
 
   fsrv->use_fauxsrv = 0;
-  fsrv->prev_timed_out = 0;
 
   list_append(&fsrv_list, fsrv);
 
@@ -82,8 +166,8 @@ void afl_fsrv_init(afl_forkserver_t *fsrv) {
 
 static void afl_fauxsrv_execv(afl_forkserver_t *fsrv, char **argv) {
 
-  unsigned char tmp[4] = {0};
-  pid_t         child_pid = -1;
+  static unsigned char tmp[4] = {0};
+  pid_t                child_pid = -1;
 
   /* Phone home and tell the parent that we're OK. If parent isn't there,
      assume we're not running in forkserver mode and just execute program. */
@@ -162,9 +246,10 @@ static void afl_fauxsrv_execv(afl_forkserver_t *fsrv, char **argv) {
 
 void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv) {
 
-  int st_pipe[2], ctl_pipe[2];
-  int status;
-  s32 rlen;
+  struct timeval timeout;
+  int            st_pipe[2], ctl_pipe[2];
+  int            status;
+  s32            rlen;
 
   if (fsrv->use_fauxsrv) ACTF("Using Fauxserver:");
 
@@ -315,18 +400,25 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv) {
   rlen = 0;
   if (fsrv->exec_tmout) {
 
-    rlen = 4;
-    u32 time = read_timed(fsrv->fsrv_st_fd, &status, rlen,
-                          fsrv->exec_tmout * FORK_WAIT_MULT);
+    fd_set readfds;
 
-    if (time > fsrv->exec_tmout * FORK_WAIT_MULT) {
+    FD_ZERO(&readfds);
+    FD_SET(fsrv->fsrv_st_fd, &readfds);
+    timeout.tv_sec = ((fsrv->exec_tmout * FORK_WAIT_MULT) / 1000);
+    timeout.tv_usec = ((fsrv->exec_tmout * FORK_WAIT_MULT) % 1000) * 1000;
+
+    int sret = select(fsrv->fsrv_st_fd + 1, &readfds, NULL, NULL, &timeout);
+
+    if (sret == 0) {
 
       fsrv->child_timed_out = 1;
-      kill(fsrv->fsrv_pid, SIGKILL);
+      kill(fsrv->child_pid, SIGKILL);
+
+    } else {
+
+      rlen = read(fsrv->fsrv_st_fd, &status, 4);
 
     }
-
-    if (!time) { kill(fsrv->fsrv_pid, SIGKILL); }
 
   } else {
 
@@ -384,8 +476,6 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv) {
 
     } else {
 
-      u8 val_buf[STRINGIFY_VAL_SIZE_MAX];
-
       SAYF("\n" cLRD "[-] " cRST
            "Whoops, the target binary crashed suddenly, "
            "before receiving any input\n"
@@ -418,8 +508,7 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv) {
            "options\n"
            "      fail, poke <afl-users@googlegroups.com> for troubleshooting "
            "tips.\n",
-           stringify_mem_size(val_buf, sizeof(val_buf), fsrv->mem_limit << 20),
-           fsrv->mem_limit - 1);
+           forkserver_DMS(fsrv->mem_limit << 20), fsrv->mem_limit - 1);
 
     }
 
@@ -454,8 +543,6 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv) {
 
   } else {
 
-    u8 val_buf[STRINGIFY_VAL_SIZE_MAX];
-
     SAYF(
         "\n" cLRD "[-] " cRST
         "Hmm, looks like the target binary terminated "
@@ -487,8 +574,7 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv) {
               "never\n"
               "      reached before the program terminates.\n\n"
             : "",
-        stringify_int(val_buf, sizeof(val_buf), fsrv->mem_limit << 20),
-        fsrv->mem_limit - 1);
+        forkserver_DMS(fsrv->mem_limit << 20), fsrv->mem_limit - 1);
 
   }
 
