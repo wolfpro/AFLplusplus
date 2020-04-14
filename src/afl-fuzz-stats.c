@@ -326,12 +326,13 @@ void show_stats(afl_state_t *afl) {
   sprintf(
     tmp + banner_pad,
     "%s " cLCY VERSION cLGN " (%s) " cPIN "[%s]" cBLU " {%d}",
-    afl->crash_mode ? cPIN "peruvian were-rabbit" : cYEL "american fuzzy lop",
+    afl->crash_mode ? cPIN "peruvian were-rabbit" : cYEL "Фаззер но основе AFL",
+
     afl->use_banner, afl->power_name, afl->cpu_aff);
 #else
   sprintf(
     tmp + banner_pad, "%s " cLCY VERSION cLGN " (%s) " cPIN "[%s]",
-    afl->crash_mode ? cPIN "peruvian were-rabbit" : cYEL "american fuzzy lop",
+    afl->crash_mode ? cPIN "peruvian were-rabbit" : cYEL "Фаззер но основе AFL",
     afl->use_banner, afl->power_name);
 #endif                                                     /* HAVE_AFFINITY */
 
@@ -351,9 +352,9 @@ void show_stats(afl_state_t *afl) {
 
   /* Lord, forgive me this. */
 
-  SAYF(SET_G1 bSTG bLT bH bSTOP cCYA
-       " process timing " bSTG bH30 bH5 bH bHB bH bSTOP cCYA
-       " overall results " bSTG bH2 bH2 bRT "\n");
+  SAYF(SET_G1 bSTG bLT bH2 bSTOP cCYA
+       " время работы  " bSTG bH30 bH5 bH bHB bH bSTOP cCYA
+       " общий результат " bSTG bH2 bH2 bRT "\n");
 
   if (afl->dumb_mode) {
 
@@ -384,8 +385,10 @@ void show_stats(afl_state_t *afl) {
 
   }
 
-  SAYF(bV bSTOP "        run time : " cRST "%-33s " bSTG bV bSTOP
-       "  cycles done : %s%-5s " bSTG              bV "\n",
+  SAYF(bV bSTOP "     общее время : " cRST "%-33s " bSTG bV bSTOP
+
+       "прошло циклов : %s%-5s " bSTG              bV "\n",
+
        DTD(cur_ms, afl->start_time), tmp, DI(afl->queue_cycle - 1));
 
   /* We want to warn people about not seeing new paths after a full cycle,
@@ -395,24 +398,26 @@ void show_stats(afl_state_t *afl) {
       (afl->last_path_time || afl->resuming_fuzz || afl->queue_cycle == 1 ||
        afl->in_bitmap || afl->crash_mode)) {
 
-    SAYF(bV bSTOP "   last new path : " cRST "%-33s ",
+    SAYF(bV bSTOP "нашел новый путь : " cRST "%-33s ",
+
          DTD(cur_ms, afl->last_path_time));
 
   } else {
 
     if (afl->dumb_mode)
 
-      SAYF(bV bSTOP "   last new path : " cPIN "n/a" cRST
+      SAYF(bV bSTOP "нашел новый путь : " cPIN "n/a" cRST
            " (non-instrumented mode)       ");
 
     else
 
-      SAYF(bV bSTOP "   last new path : " cRST "none yet " cLRD
+      SAYF(bV bSTOP "нашел новый путь : " cRST "none yet " cLRD
            "(odd, check syntax!)     ");
 
   }
 
-  SAYF(bSTG bV bSTOP "  total paths : " cRST "%-5s " bSTG bV "\n",
+  SAYF(bSTG bV bSTOP "  всего путей : " cRST "%-5s " bSTG bV "\n",
+
        DI(afl->queued_paths));
 
   /* Highlight crashes in red if found, denote going over the KEEP_UNIQUE_CRASH
@@ -421,21 +426,23 @@ void show_stats(afl_state_t *afl) {
   sprintf(tmp, "%s%s", DI(afl->unique_crashes),
           (afl->unique_crashes >= KEEP_UNIQUE_CRASH) ? "+" : "");
 
-  SAYF(bV bSTOP " last uniq crash : " cRST "%-33s " bSTG bV bSTOP
-       " uniq crashes : %s%-6s" bSTG               bV "\n",
+  SAYF(bV bSTOP "  последний крах : " cRST "%-33s " bSTG bV bSTOP
+       " всего крахов : %s%-6s" bSTG               bV "\n",
+
        DTD(cur_ms, afl->last_crash_time), afl->unique_crashes ? cLRD : cRST,
        tmp);
 
   sprintf(tmp, "%s%s", DI(afl->unique_hangs),
           (afl->unique_hangs >= KEEP_UNIQUE_HANG) ? "+" : "");
 
-  SAYF(bV bSTOP "  last uniq hang : " cRST "%-33s " bSTG bV bSTOP
-       "   uniq hangs : " cRST "%-6s" bSTG         bV "\n",
+  SAYF(bV bSTOP "  last зависание : " cRST "%-33s " bSTG bV bSTOP
+       "    зависаний : " cRST "%-6s" bSTG         bV "\n",
+
        DTD(cur_ms, afl->last_hang_time), tmp);
 
-  SAYF(bVR bH bSTOP            cCYA
-       " cycle progress " bSTG bH10 bH5 bH2 bH2 bHB bH bSTOP cCYA
-       " map coverage " bSTG bH bHT bH20 bH2 bVL "\n");
+  SAYF(bVR bH2 bH2 bSTOP            cCYA
+       " прогресс " bSTG bH bH2 bH10 bH5 bH2 bH2 bHB bH bH2 bSTOP cCYA
+       " покрытие " bSTG bH2 bH bHT bH20 bH2 bVL "\n");
 
   /* This gets funny because we want to print several variable-length variables
      together, but then cram them into a fixed-width field - so we need to
@@ -445,12 +452,11 @@ void show_stats(afl_state_t *afl) {
           afl->queue_cur->favored ? "." : "*", afl->queue_cur->fuzz_level,
           ((double)afl->current_entry * 100) / afl->queued_paths);
 
-  SAYF(bV bSTOP "  now processing : " cRST "%-16s " bSTG bV bSTOP, tmp);
-
+  SAYF(bV bSTOP "   в обработке   : " cRST "%-16s " bSTG bV bSTOP, tmp);
   sprintf(tmp, "%0.02f%% / %0.02f%%",
           ((double)afl->queue_cur->bitmap_size) * 100 / MAP_SIZE, t_byte_ratio);
 
-  SAYF("    map density : %s%-21s" bSTG bV "\n",
+  SAYF("       охват    : %s%-21s" bSTG bV "\n",
        t_byte_ratio > 70 ? cLRD
        : ((t_bytes < 200 && !afl->dumb_mode) ? cPIN : cRST),
        tmp);
@@ -458,23 +464,20 @@ void show_stats(afl_state_t *afl) {
   sprintf(tmp, "%s (%0.02f%%)", DI(afl->cur_skipped_paths),
           ((double)afl->cur_skipped_paths * 100) / afl->queued_paths);
 
-  SAYF(bV bSTOP " paths timed out : " cRST "%-16s " bSTG bV, tmp);
-
+  SAYF(bV bSTOP "  путей пройдено : " cRST "%-16s " bSTG bV, tmp);
   sprintf(tmp, "%0.02f bits/tuple", t_bytes ? (((double)t_bits) / t_bytes) : 0);
-
-  SAYF(bSTOP " count coverage : " cRST "%-21s" bSTG bV "\n", tmp);
-
+  SAYF(bSTOP "  счет покрытия : " cRST "%-21s" bSTG bV "\n", tmp);
   SAYF(bVR bH bSTOP            cCYA
-       " stage progress " bSTG bH10 bH5 bH2 bH2 bX bH bSTOP cCYA
-       " findings in depth " bSTG bH10 bH5 bH2 bH2 bVL "\n");
-
+       " этап прогресса " bSTG bH10 bH5 bH2 bH2 bX bH bH2 bSTOP cCYA
+       " поиск в глубину " bSTG bH10 bH5 bH2 bH2 bVL "\n");
   sprintf(tmp, "%s (%0.02f%%)", DI(afl->queued_favored),
           ((double)afl->queued_favored) * 100 / afl->queued_paths);
 
   /* Yeah... it's still going on... halp? */
 
-  SAYF(bV bSTOP "  now trying : " cRST "%-20s " bSTG bV bSTOP
-       " favored paths : " cRST "%-22s" bSTG   bV "\n",
+  SAYF(bV bSTOP "       режим : " cRST "%-20s " bSTG bV bSTOP
+
+       "   частые пути : " cRST "%-22s" bSTG   bV "\n",
        afl->stage_name, tmp);
 
   if (!afl->stage_max) {
@@ -488,12 +491,11 @@ void show_stats(afl_state_t *afl) {
 
   }
 
-  SAYF(bV bSTOP " stage execs : " cRST "%-21s" bSTG bV bSTOP, tmp);
-
+  SAYF(bV bSTOP " этап работы : " cRST "%-21s" bSTG bV bSTOP, tmp);
   sprintf(tmp, "%s (%0.02f%%)", DI(afl->queued_with_cov),
           ((double)afl->queued_with_cov) * 100 / afl->queued_paths);
 
-  SAYF("  new edges on : " cRST "%-22s" bSTG bV "\n", tmp);
+  SAYF("   новые ребра : " cRST "%-22s" bSTG bV "\n", tmp);
 
   sprintf(tmp, "%s (%s%s unique)", DI(afl->total_crashes),
           DI(afl->unique_crashes),
@@ -501,14 +503,15 @@ void show_stats(afl_state_t *afl) {
 
   if (afl->crash_mode) {
 
-    SAYF(bV bSTOP " total execs : " cRST "%-20s " bSTG bV bSTOP
-         "   new crashes : %s%-22s" bSTG         bV "\n",
+    SAYF(bV bSTOP "всего пусков : " cRST "%-20s " bSTG bV bSTOP
+
+         "   новые крахи : %s%-22s" bSTG         bV "\n",
          DI(afl->total_execs), afl->unique_crashes ? cLRD : cRST, tmp);
 
   } else {
 
-    SAYF(bV bSTOP " total execs : " cRST "%-20s " bSTG bV bSTOP
-         " total crashes : %s%-22s" bSTG         bV "\n",
+    SAYF(bV bSTOP "всего пусков : " cRST "%-20s " bSTG bV bSTOP
+         "  всего крахов : %s%-22s" bSTG         bV "\n",
          DI(afl->total_execs), afl->unique_crashes ? cLRD : cRST, tmp);
 
   }
@@ -520,12 +523,12 @@ void show_stats(afl_state_t *afl) {
     sprintf(tmp, "%s/sec (%s)", DF(avg_exec),
             avg_exec < 20 ? "zzzz..." : "slow!");
 
-    SAYF(bV bSTOP "  exec speed : " cLRD "%-20s ", tmp);
+    SAYF(bV bSTOP "    скорость : " cLRD "%-20s ", tmp);
 
   } else {
 
     sprintf(tmp, "%s/sec", DF(avg_exec));
-    SAYF(bV bSTOP "  exec speed : " cRST "%-20s ", tmp);
+    SAYF(bV bSTOP "    скорость : " cRST "%-20s ", tmp);
 
   }
 
@@ -533,13 +536,16 @@ void show_stats(afl_state_t *afl) {
           DI(afl->unique_tmouts),
           (afl->unique_hangs >= KEEP_UNIQUE_HANG) ? "+" : "");
 
-  SAYF(bSTG bV bSTOP "  total tmouts : " cRST "%-22s" bSTG bV "\n", tmp);
+  SAYF(bSTG bV bSTOP "  всего tmouts : " cRST "%-22s" bSTG bV "\n", tmp);
+
 
   /* Aaaalmost there... hold on! */
 
-  SAYF(bVR bH cCYA                      bSTOP
-       " fuzzing strategy yields " bSTG bH10 bHT bH10 bH5 bHB bH bSTOP cCYA
-       " path geometry " bSTG bH5 bH2 bVL "\n");
+  SAYF(bVR bH5 bH cCYA                      bSTOP
+       " стратегия фаззинга " bSTG bH10 bHT bH10 bH5 bHB bH bSTOP cCYA
+
+       " геометрия пути " bSTG bH5 bH bVL "\n");
+
 
   if (afl->skip_deterministic) {
 
@@ -556,7 +562,7 @@ void show_stats(afl_state_t *afl) {
   }
 
   SAYF(bV bSTOP "   bit flips : " cRST "%-36s " bSTG bV bSTOP
-       "    levels : " cRST "%-10s" bSTG       bV "\n",
+       "    уровни : " cRST "%-10s" bSTG       bV "\n",
        tmp, DI(afl->max_depth));
 
   if (!afl->skip_deterministic)
@@ -578,7 +584,7 @@ void show_stats(afl_state_t *afl) {
             DI(afl->stage_finds[STAGE_ARITH32]),
             DI(afl->stage_cycles[STAGE_ARITH32]));
 
-  SAYF(bV bSTOP " arithmetics : " cRST "%-36s " bSTG bV bSTOP
+  SAYF(bV bSTOP "  арифметика : " cRST "%-36s " bSTG bV bSTOP
        "  pend fav : " cRST "%-10s" bSTG       bV "\n",
        tmp, DI(afl->pending_favored));
 
@@ -590,8 +596,10 @@ void show_stats(afl_state_t *afl) {
             DI(afl->stage_finds[STAGE_INTEREST32]),
             DI(afl->stage_cycles[STAGE_INTEREST32]));
 
-  SAYF(bV bSTOP "  known ints : " cRST "%-36s " bSTG bV bSTOP
+  SAYF(bV bSTOP "   известные : " cRST "%-36s " bSTG bV bSTOP
+
        " own finds : " cRST "%-10s" bSTG       bV "\n",
+
        tmp, DI(afl->queued_discovered));
 
   if (!afl->skip_deterministic)
@@ -602,7 +610,7 @@ void show_stats(afl_state_t *afl) {
             DI(afl->stage_finds[STAGE_EXTRAS_AO]),
             DI(afl->stage_cycles[STAGE_EXTRAS_AO]));
 
-  SAYF(bV bSTOP "  dictionary : " cRST "%-36s " bSTG bV bSTOP
+  SAYF(bV bSTOP "     словарь : " cRST "%-36s " bSTG bV bSTOP
        "  imported : " cRST "%-10s" bSTG       bV "\n",
        tmp, afl->sync_id ? DI(afl->queued_imported) : (u8 *)"n/a");
 

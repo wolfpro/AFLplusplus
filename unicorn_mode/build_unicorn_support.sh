@@ -125,13 +125,13 @@ fi
 echo "[+] All checks passed!"
 
 echo "[*] Making sure unicornafl is checked out"
-# rm -rf unicornafl # workaround for travis ... sadly ...
+rm -rf unicornafl # workaround for travis ... sadly ...
 #test -d unicorn && { cd unicorn && { git stash ; git pull ; cd .. ; } }
 test -d unicornafl || {
    CNT=1
    while [ '!' -d unicornafl -a "$CNT" -lt 4 ]; do
      echo "Trying to clone unicornafl (attempt $CNT/3)"
-     # git clone https://github.com/vanhauser-thc/unicornafl
+     git clone https://github.com/vanhauser-thc/unicornafl
      CNT=`expr "$CNT" + 1`
    done
 }
