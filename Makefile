@@ -67,7 +67,7 @@ endif
 CFLAGS     ?= -O3 -funroll-loops $(CFLAGS_OPT)
 override CFLAGS     += -Wall -g -Wno-pointer-sign -I include/ \
               -DAFL_PATH=\"$(HELPER_PATH)\" -DBIN_PATH=\"$(BIN_PATH)\" \
-              -DDOC_PATH=\"$(DOC_PATH)\" -Wno-unused-function -fcommon
+              -DDOC_PATH=\"$(DOC_PATH)\" -fcommon
 
 AFL_FUZZ_FILES = $(wildcard src/afl-fuzz*.c)
 
