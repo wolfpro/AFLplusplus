@@ -46,7 +46,7 @@ ARG CC=gcc-9
 ARG CXX=g++-9
 ARG LLVM_CONFIG=llvm-config-9
 
-RUN git clone https://github.com/AFLplusplus/AFLplusplus
+RUN git clone https://github.com/wolfpro/AFLplusplus
 RUN git clone https://github.com/dyninst/dyninst
 RUN git clone https://github.com/vanhauser-thc/afl-dyninst
 RUN git clone https://github.com/DynamoRIO/dynamorio
