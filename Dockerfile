@@ -40,7 +40,8 @@ RUN apt-get update && apt-get -y install \
     libiberty-dev \
     libboost-all-dev \
     libtbb2 \
-    libtbb-dev && rm -rf /var/lib/apt/lists/*
+    llvm-runtime \
+    libtbb-dev && rm -rf /var/lib/apt/lists/* && ln /bin/llvm-config-9 /bin/llvm-config 
 
 ARG CC=gcc-9
 ARG CXX=g++-9
@@ -51,9 +52,26 @@ RUN git clone https://github.com/dyninst/dyninst
 RUN git clone https://github.com/vanhauser-thc/afl-dyninst
 RUN git clone https://github.com/DynamoRIO/dynamorio
 
+RUN export AFL_PATH=/AFLplusplus
 RUN cd AFLplusplus && make clean && make distrib && \
     make install && cd .. 
    
-RUN cd dyninst && mkdir build && cmake /dyninst -DCMAKE_INSTALL_PREFIX=/dyninst/build && make install && cd ..
+RUN cd dyninst && ln -s ../AFLplusplus afl && ls  && mkdir build && cmake /dyninst -DCMAKE_INSTALL_PREFIX=/dyninst/build && make install && cd ..
+
+RUN cd afl-dyninst \
+    && ln -s ../AFLplusplus afl \
+    && 
+    && make \
+    && make install \
+    && cd .. \
+    && echo "/usr/local/lib" > /etc/ld.so.conf.d/dyninst.conf && ldconfig \
+    && echo "export DYNINSTAPI_RT_LIB=/usr/local/lib/libdyninstAPI_RT.so" >> .bashrc
+
+ENV DYNINSTAPI_RT_LIB /usr/local/lib/libdyninstAPI_RT.so
 
 RUN cd dynamorio && cmake . && make && make install &&  cd ..
+
+RUN git clone https://github.com/vanhauser-thc/afl-dynamorio
+RUN cd afl-dynamorio && ln -s ../AFLplusplus afl && export DYNAMORIO_HOME=/dynamorio && make && make install
+
+ 
