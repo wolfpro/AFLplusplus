@@ -1,14 +1,8 @@
-# american fuzzy lop plus plus (afl++)
+# american fuzzy lop plus plus (afl++) Русский порт + DynamoRio
 
   <img align="right" src="https://raw.githubusercontent.com/andreafioraldi/AFLplusplus-website/master/static/logo_256x256.png" alt="AFL++ Logo">
 
   ![Travis State](https://api.travis-ci.com/vanhauser-thc/AFLplusplus.svg?branch=master)
-
-  Release Version: 2.62c
-
-  Github Version: 2.62d
-
-  includes all necessary/interesting changes from Google's afl 2.56b
 
   Originally developed by Michal "lcamtuf" Zalewski.
 
