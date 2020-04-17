@@ -60,7 +60,7 @@ RUN cd dyninst && ln -s ../AFLplusplus afl && ls  && mkdir build && cmake /dynin
 
 RUN cd afl-dyninst \
     && ln -s ../AFLplusplus afl \
-    && 
+    && cp ../AFLplusplus/scripts/Makefile_afl-dyninst Makefile \    
     && make \
     && make install \
     && cd .. \
